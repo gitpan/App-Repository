@@ -1,0 +1,25 @@
+######################################################################
+## File: $Id: TODO,v 1.3 2004/09/02 20:59:16 spadkins Exp $
+######################################################################
+
+ o App::Repository        - Multiple (delegated) repositories
+ o App::Repository::MySQL - Shared connections between repositories
+ o App::Repository::File
+ o App::Repository        - $rep->purge(...)
+ o App::Repository::MySQL - $rep->purge(...)
+
+ o App::Repository        - $rep->set_rows(...)
+ o App::Repository        - $rep->maintain(...)
+ o App::Repository        - $rep->export(...)
+ o App::Repository        - $rep->import(...)
+ o App::Repository        - summaries
+ o App::Repository        - partitions
+ o App::Repository        - defaults
+ o App::Repository        - required cols
+ o App::Repository        - Read-only
+ o App::Repository        - read/write permissions
+ o App::Repository::MySQL - load primary key, alternate keys, indexes
+ o App::Repository        - ID generation
+ o App::Repository::DBI   - ID generation
+ o App::Repository::DBI   - cache, allows prepare/execute optimization
+
