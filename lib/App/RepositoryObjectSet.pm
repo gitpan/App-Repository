@@ -1,22 +1,25 @@
 
 #############################################################################
-## $Id: RepositoryObject.pm,v 1.3 2004/10/12 14:09:09 spadkins Exp $
+## $Id: RepositoryObjectSet.pm,v 1.1 2002/10/12 03:03:48 spadkins Exp $
 #############################################################################
 
-package App::RepositoryObject;
+package App::RepositoryObjectSet;
 
 use App;
 use App::Repository;
+use App::SessionObject;
+
+@ISA = ( "App::SessionObject" );
 
 use strict;
 
 =head1 NAME
 
-App::RepositoryObject - Interface for data persistence
+App::RepositoryObjectSet - A set of repository objects described by a set of query parameters
 
 =head1 SYNOPSIS
 
-    use App::RepositoryObject;
+    use App::RepositoryObjectSet;
 
     ...
 
@@ -24,22 +27,17 @@ App::RepositoryObject - Interface for data persistence
 
 =head1 DESCRIPTION
 
-A RepositoryObject is an object whose state is stored in a repository.
-It is a base class for many business classes.
+A RepositoryObjectSet is a set of repository objects (i.e. rows in 
+a database).
 
-All RepositoryObjects are created using the $rep->get_object() or
-$rep->get_objects() methods,
+All RepositoryObjectSet are created using the $rep->object() method,
 and they all have the following attributes.
 
     $self->{_repository} - the Repository which the object came from
+    $self->{_context}    - the Context the object is running in
     $self->{_table}      - the table name associated with the object
     $self->{_key}        - the unique identifier of the object in the
                            table in the repository
-
-I am considering adding the following standard attribute, but I have
-not yet decided whether I should.
-
-    $self->{_context}    - the Context the object is running in
 
 =cut
 
@@ -115,7 +113,7 @@ sub get {
     * Signature: $obj->set($attrib, $value, $options);
     * Param:     $attrib      string,ARRAY
     * Param:     $value       any,ARRAY
-    * Param:     $options     any,ARRAY
+    * Return:    void
     * Throws:    App::Exception
     * Since:     0.01
 
@@ -129,7 +127,6 @@ Sets the value of one or more attributes of an object.
 
 sub set {
     my ($self, $attrib, $value, $options) = @_;
-    die "Can't set values: _key not defined on object[$self->{_table}]" if (! defined $self->{_key});
     my $nrows = $self->{_repository}->set($self->{_table}, $self->{_key}, $attrib, $value);
     if (ref($attrib) eq "ARRAY") {
         for (my $i = 0; $i <= $#$attrib; $i++) {
@@ -143,7 +140,6 @@ sub set {
             $self->{$attrib} = $value;
         }
     }
-    die "can't set($attrib, $value) on object[$self->{_table}.$self->{_key}]" if (!$nrows);
     return($nrows);
 }
 

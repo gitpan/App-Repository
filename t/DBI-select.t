@@ -463,6 +463,60 @@ is($sql, $expect_sql, "_mk_select_sql(): verbatim");
 &check_select($sql,0);
 
 ###########################################################################
+# EXCEPTIONS
+###########################################################################
+
+{
+    my ($rows, $row);
+    open(SAVE, ">&STDERR");
+    open(STDERR, "/dev/null");
+
+    $rows = [];
+    eval {
+        $rows = $rep->get_rows("table_y", {}, ["x"]);
+    };
+    ok($@ =~ /fail/, "get_rows(): bad SQL causes exception");
+
+    $rows = [];
+    eval {
+        $rows = $rep->get_row("table_y", {}, ["x"]);
+    };
+    ok($@ =~ /fail/, "get_row(): bad SQL causes exception");
+
+    $rep->insert("test_person",["person_id","last_name","first_name"],[1,"Stephen","Adkins"]);
+
+    $rep->_disconnect();
+    $rows = [];
+    eval {
+        $rows = $rep->get_rows("test_person", {}, ["person_id"]);
+    };
+    ok($#$rows == 0, "get_rows(): reconnect because rep was _disconnect()ed");
+
+    $rep->{dbh}{mysql_auto_reconnect} = 0;
+    $rep->{dbh}->disconnect();
+    $rows = [];
+    eval {
+        $rows = $rep->get_rows("test_person", {}, ["person_id"]);
+    };
+    ok($#$rows == 0, "get_rows(): reconnect because dbh was disconnect()ed");
+
+    $rep->{dbh}{mysql_auto_reconnect} = 0;
+    $rep->{dbh}->disconnect();
+    $row = undef;
+    eval {
+        $row = $rep->get_row("test_person", {person_id => 1}, ["person_id"]);
+    };
+    ok(defined $row && $#$row == 0, "get_row(): reconnect because dbh was disconnect()ed");
+
+    open(STDERR, ">&SAVE");
+    close(SAVE);
+
+    $rep->delete("test_person",{person_id => 1});
+}
+
+exit(0);
+
+###########################################################################
 # JOINED (MULTI-TABLE) SELECT SQL-GENERATION TESTS
 ###########################################################################
 
@@ -474,7 +528,91 @@ from
 EOF
 #$App::trace_subs = 1;
 &test_get_rows($expect_sql,0,"_mk_select_joined_sql(): 1 col, no params","test_person",{},"age");
+
 exit(0);
+
+$expect_sql = <<EOF;
+select
+   t1.first_name,
+   t1.state,
+   t1.age
+from test_person
+where (age in (14,15) or age > 18 or age is null)
+EOF
+&test_get_rows($expect_sql, 0, "_mk_select_joined_sql(): OR conditions with [] value",
+    "test_person",
+    {age => [14, 15, ">18", undef]},
+    ["first_name","state","age"]);
+$sql = $rep->_mk_select_sql("test_person",
+                            {age => [14,15,">18",undef]},
+                            ["first_name","state","age"]);
+is($sql, $expect_sql, "_mk_select_sql(): OR conditions with [] value");
+&check_select($sql,0);
+
+$expect_sql = <<EOF;
+select
+   t1.first_name,
+   t1.state,
+   t1.age
+from test_person
+where age > 14
+  and first_name like '%A%'
+EOF
+&test_get_rows($expect_sql, 0, "_mk_select_joined_sql(): square bracket [] params",
+    "test_person",
+    [age => ">14", first_name => "*A*"],
+    ["first_name","state","age"]);
+$sql = $rep->_mk_select_sql("test_person",
+                            [age => ">14", first_name => "*A*"],
+                            ["first_name","state","age"]);
+is($sql, $expect_sql, "_mk_select_sql(): square bracket [] params");
+&check_select($sql,0);
+
+$expect_sql = <<EOF;
+select
+   t1.first_name,
+   t1.state,
+   t1.age
+from test_person
+where age > 14
+   or not (first_name like '%A%')
+   or (state in ('GA','CA') and
+       age <= 2)
+EOF
+&test_get_rows($expect_sql, 0, "_mk_select_joined_sql(): ordercols, directions",
+    "test_person",
+    ["_or", age => ">14",
+      ["_not", first_name => "*A*"],
+      ["_and", state => "GA,CA", "age.le" => 2]],
+    ["first_name","state","age"]);
+$sql = $rep->_mk_select_sql("test_person",
+                            [age => ">14", first_name => "*A*"],
+                            ["first_name","state","age"]);
+is($sql, $expect_sql, "_mk_select_sql(): verbatim");
+&check_select($sql,0);
+
+$expect_sql = <<EOF;
+select
+   t1.first_name,
+   t1.state,
+   t1.age
+from test_person
+where not (not(age > 14)
+  and not (first_name like '%A%')
+  and not (state in ('GA','CA') and
+           age <= 2))
+EOF
+&test_get_rows($expect_sql, 0, "_mk_select_joined_sql(): ordercols, directions",
+    "test_person",
+    ["_not", age => ">14",
+      ["_not_or", first_name => "*A*"],
+      ["_not_and", state => ["GA","CA"], "age.le" => 2]],
+    ["first_name","state","age"]);
+$sql = $rep->_mk_select_sql("test_person",
+                            [age => ">14", first_name => "*A*"],
+                            ["first_name","state","age"]);
+is($sql, $expect_sql, "_mk_select_sql(): verbatim");
+&check_select($sql,0);
 
 &test_get_rows($expect_sql,0,"_mk_select_joined_sql(): 1 col as array, no params","test_person",{},["age"]);
 
@@ -804,14 +942,14 @@ select
 from test_person
 where age in (14,15,16,17,18)
 EOF
-&test_get_rows($expect_sql, 0, "_mk_select_joined_sql(): ordercols, directions",
+&test_get_rows($expect_sql, 0, "_mk_select_joined_sql(): verbatim (boo. hiss. evil.)",
     "test_person",
     {"age.verbatim" => "age in (14,15,16,17,18)"},
     ["first_name","last_name","city","state","age"]);
 $sql = $rep->_mk_select_sql("test_person",
                             {"age.verbatim" => "age in (14,15,16,17,18)"},
                             ["first_name","last_name","city","state","age"]);
-is($sql, $expect_sql, "_mk_select_sql(): verbatim");
+is($sql, $expect_sql, "_mk_select_sql(): verbatim (boo. hiss. evil.)");
 &check_select($sql,0);
 
 exit 0;

@@ -1,12 +1,12 @@
 
 ######################################################################
-## File: $Id: MySQL.pm,v 1.8 2004/09/02 21:02:08 spadkins Exp $
+## File: $Id: MySQL.pm,v 1.10 2004/12/09 21:54:12 spadkins Exp $
 ######################################################################
 
 use App::Repository::DBI;
 
 package App::Repository::MySQL;
-$VERSION = do { my @r=(q$Revision: 1.8 $=~/\d+/g); sprintf "%d."."%02d"x$#r,@r};
+$VERSION = do { my @r=(q$Revision: 1.10 $=~/\d+/g); sprintf "%d."."%02d"x$#r,@r};
 
 @ISA = ( "App::Repository::DBI" );
 
@@ -32,32 +32,52 @@ The App::Repository::MySQL class encapsulates all access to a MySQL database.
 
 =cut
 
+sub _connect {
+    &App::sub_entry if ($App::trace);
+    my $self = shift;
+
+    if (!defined $self->{dbh}) {
+        my $dsn = $self->_dsn();
+        my $attr = $self->_attr();
+        $self->{dbh} = DBI->connect($dsn, $self->{dbuser}, $self->{dbpass}, $attr);
+        $self->{dbh}{mysql_auto_reconnect} = 1;
+    }
+
+    &App::sub_exit(defined $self->{dbh}) if ($App::trace);
+    return(defined $self->{dbh});
+}
+
 sub _dsn {
     &App::sub_entry if ($App::trace);
     my ($self) = @_;
 
-    my $dbidriver  = "mysql";
-    my $dbname     = $self->{dbname};
-    my $dbuser     = $self->{dbuser};
-    my $dbpass     = $self->{dbpass};
-    my $dbschema   = $self->{dbschema};
-    my $dbhost     = $self->{dbhost};
-    my $dbport     = $self->{dbport};
+    my $dbdriver   = "mysql";
+    $self->{dbdriver} = $dbdriver if (!$self->{dbdriver});
 
-    die "ERROR: missing DBI driver and/or db name [$dbidriver,$dbname] in configuration.\n"
-        if (!$dbidriver || !$dbname);
+    my $dsn = $self->{dbdsn};
+    if (!$dsn) {
+        my $dbname     = $self->{dbname};
+        my $dbuser     = $self->{dbuser};
+        my $dbpass     = $self->{dbpass};
+        my $dbschema   = $self->{dbschema};
+        my $dbhost     = $self->{dbhost};
+        my $dbport     = $self->{dbport};
 
-    # NOTE: mysql_client_found_rows=true is important for the following condition.
-    # If an update is executed against a row that exists, but its values do not change,
-    # MySQL does not ordinarily report this as a row that has been affected by the
-    # statement.  However, we occasionally need to know if the update found the row.
-    # We really don't care if the values were changed or not.  To get this behavior,
-    # we need to set this option.
+        die "ERROR: missing DBI driver and/or db name [$dbdriver,$dbname] in configuration.\n"
+            if (!$dbdriver || !$dbname);
 
-    my $dsn = "dbi:${dbidriver}:database=${dbname}";
-    $dsn .= ";host=$dbhost" if ($dbhost);
-    $dsn .= ";port=$dbport" if ($dbport);  # if $dbhost not supplied, $dbport is path to Unix socket
-    $dsn .= ";mysql_client_found_rows=true";
+        # NOTE: mysql_client_found_rows=true is important for the following condition.
+        # If an update is executed against a row that exists, but its values do not change,
+        # MySQL does not ordinarily report this as a row that has been affected by the
+        # statement.  However, we occasionally need to know if the update found the row.
+        # We really don't care if the values were changed or not.  To get this behavior,
+        # we need to set this option.
+
+        $dsn = "dbi:${dbdriver}:database=${dbname}";
+        $dsn .= ";host=$dbhost" if ($dbhost);
+        $dsn .= ";port=$dbport" if ($dbport);  # if $dbhost not supplied, $dbport is path to Unix socket
+        $dsn .= ";mysql_client_found_rows=true";
+    }
 
     &App::sub_exit($dsn) if ($App::trace);
     return($dsn);

@@ -111,5 +111,25 @@ $sql = $rep->_mk_update_sql("test_person",4,["age","state"],[6,"GA"]);
 is($sql, $expect_sql, "_mk_update_sql(): 2 cols, by key");
 &check_exec($sql,1);
 
+$expect_sql = <<EOF;
+update test_person set
+   age = 6,
+   state = 'GA'
+where person_id = 4
+EOF
+$sql = $rep->_mk_update_sql("test_person",4,["age","state"],{age => 6, state => "GA"});
+is($sql, $expect_sql, "_mk_update_sql(): 2 cols, by key, row is a hashref");
+&check_exec($sql,1);
+
+# This doesn't work yet
+#$expect_sql = <<EOF;
+#update test_person set
+#   age = 6
+#where person_id = 4
+#EOF
+#$sql = $rep->_mk_update_sql("test_person",4,{age => 6});
+#is($sql, $expect_sql, "_mk_update_sql(): 1 col, by key, cols/row is single hashref");
+#&check_exec($sql,1);
+
 exit 0;
 

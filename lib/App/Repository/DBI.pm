@@ -1,13 +1,13 @@
 
 ######################################################################
-## File: $Id: DBI.pm,v 1.18 2004/09/02 21:04:07 spadkins Exp $
+## File: $Id: DBI.pm,v 1.21 2004/12/14 15:42:14 spadkins Exp $
 ######################################################################
 
 use App;
 use App::Repository;
 
 package App::Repository::DBI;
-$VERSION = do { my @r=(q$Revision: 1.18 $=~/\d+/g); sprintf "%d."."%02d"x$#r,@r};
+$VERSION = do { my @r=(q$Revision: 1.21 $=~/\d+/g); sprintf "%d."."%02d"x$#r,@r};
 
 @ISA = ( "App::Repository" );
 
@@ -86,7 +86,7 @@ App::Repository::DBI - a repository which relies on a DBI interface to a relatio
 ######################################################################
 
 # CONNECTION ATTRIBUTES
-# $self->{dbidriver}  # standard DBI driver name ("mysql", "Oracle", etc.)
+# $self->{dbdriver}   # standard DBI driver name ("mysql", "Oracle", etc.)
 # $self->{dbname}     # the name of the database
 # $self->{dbuser}     # database user name
 # $self->{dbpass}     # database password
@@ -178,6 +178,7 @@ sub _connect {
         my $dsn = $self->_dsn();
         my $attr = $self->_attr();
         $self->{dbh} = DBI->connect($dsn, $self->{dbuser}, $self->{dbpass}, $attr);
+        die "Can't connect to database" if (!$self->{dbh});
     }
 
     &App::sub_exit(defined $self->{dbh}) if ($App::trace);
@@ -188,18 +189,21 @@ sub _connect {
 sub _dsn {
     &App::sub_entry if ($App::trace);
     my ($self) = @_;
-    my ($dbidriver, $dbname, $dbuser, $dbpass, $dbschema);
+    my ($dbdriver, $dbname, $dbuser, $dbpass, $dbschema);
 
-    $dbidriver  = $self->{dbidriver};
-    $dbname     = $self->{dbname};
-    $dbuser     = $self->{dbuser};
-    $dbpass     = $self->{dbpass};
-    $dbschema   = $self->{dbschema};
+    my $dsn = $self->{dbdsn};
+    if (!$dsn) {
+        my $dbdriver   = $self->{dbdriver} || $self->{dbdriver};
+        my $dbname     = $self->{dbname};
+        my $dbuser     = $self->{dbuser};
+        my $dbpass     = $self->{dbpass};
+        my $dbschema   = $self->{dbschema};
 
-    die "ERROR: missing DBI driver and/or db name [$dbidriver,$dbname] in configuration.\n"
-        if (!$dbidriver || !$dbname);
+        die "ERROR: missing DBI driver and/or db name [$dbdriver,$dbname] in configuration.\n"
+            if (!$dbdriver || !$dbname);
 
-    my $dsn = "dbi:${dbidriver}:database=${dbname}";
+        $dsn = "dbi:${dbdriver}:database=${dbname}";
+    }
 
     &App::sub_exit($dsn) if ($App::trace);
     return($dsn);
@@ -307,7 +311,7 @@ sub _init2 {
     }
     else {
         my ($var, $capsvar);
-        foreach $var qw(dbidriver dbname dbuser dbpass dbioptions dbschema) {
+        foreach $var qw(dbdriver dbname dbuser dbpass dbioptions dbschema) {
             if (! defined $self->{$var}) {
                 $capsvar = uc($var);
                 if ($ENV{$capsvar}) {
@@ -339,14 +343,38 @@ sub _get_row {
     $self->{sql} = $sql;
 
     $dbh = $self->{dbh};
-    return undef if (!$dbh);
+    if (!$dbh) {
+        $self->_connect();
+        $dbh = $self->{dbh};
+    }
 
     my $debug_sql = $self->{context}{options}{debug_sql};
     if ($debug_sql) {
         print "DEBUG_SQL: _get_row()\n";
         print $sql;
     }
-    $row = $dbh->selectrow_arrayref($sql);
+    while (1) {
+        eval {
+            $row = $dbh->selectrow_arrayref($sql);
+        };
+        if ($@) {
+            $row = undef;
+            if ($@ =~ /Lost connection/ || $@ =~ /server has gone away/) {
+                $self->{context}->log("DBI Exception (retrying) in _get_row(): $@");
+                $self->_disconnect();
+                sleep(1);
+                $self->_connect();
+                $dbh = $self->{dbh};
+            }
+            else {
+                $self->{context}->log("DBI Exception (fail) in _get_row(): $@");
+                die $@;
+            }
+        }
+        else {
+            last;
+        }
+    }
     if ($debug_sql) {
         print "DEBUG_SQL: nrows [", (defined $row ? 1 : 0), "] $DBI::errstr\n";
         if ($debug_sql >= 2) {
@@ -363,7 +391,7 @@ sub _get_rows {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $params, $cols, $options) = @_;
 
-    my ($sql, $dbh, $rows, $startrow, $endrow);
+    my ($sql, $rows, $startrow, $endrow);
     if ($self->{table}{$table}{rawaccess}) {
         $sql = $self->_mk_select_sql($table, $params, $cols, $options);
     }
@@ -372,8 +400,7 @@ sub _get_rows {
     }
     $self->{sql} = $sql;
 
-    $dbh = $self->{dbh};
-    return undef if (!$dbh);
+    $self->_connect() if (!$self->{dbh});
 
     $options  = {} if (!$options);
     $startrow = $options->{startrow} || 0;
@@ -384,7 +411,27 @@ sub _get_rows {
         print "DEBUG_SQL: _get_rows()\n";
         print $sql;
     }
-    $rows     = $self->_selectrange_arrayref($sql, $startrow, $endrow);
+    while (1) {
+        eval {
+            $rows = $self->_selectrange_arrayref($sql, $startrow, $endrow);
+        };
+        if ($@) {
+            $rows = [];
+            if ($@ =~ /Lost connection/ || $@ =~ /server has gone away/) {
+                $self->{context}->log("DBI Exception (retrying) in _get_rows(): $@");
+                $self->_disconnect();
+                sleep(1);
+                $self->_connect();
+            }
+            else {
+                $self->{context}->log("DBI Exception (fail) in _get_rows(): $@");
+                die $@;
+            }
+        }
+        else {
+            last;
+        }
+    }
     if ($debug_sql) {
         print "DEBUG_SQL: nrows [", (defined $rows ? ($#$rows+1) : 0), "] $DBI::errstr\n";
         if ($debug_sql >= 2) {
@@ -1260,25 +1307,25 @@ sub _mk_select_sql_suffix {
 
 sub _require_tables {
     &App::sub_entry if ($App::trace >= 3);
-    my ($self, $dbexpr, $reqd_tables, $tablealiashref, $require_type) = @_;
+    my ($self, $dbexpr, $reqd_tables, $relationship_defs, $require_type) = @_;
     #print "_require_tables($dbexpr,...,...,$require_type)\n";
-    my ($tablealias, $tablealias2, @tablealias, %tableseen, $dependencies);
+    my ($relationship, $relationship2, @relationship, %tableseen, $dependencies);
     while ($dbexpr =~ s/([a-zA-Z_][a-zA-Z_0-9]*)\.[a-zA-Z_][a-zA-Z_0-9]*//) {
-        if (defined $tablealiashref->{$1} && !$tableseen{$1}) {
-            push(@tablealias, $1);
+        if (defined $relationship_defs->{$1} && !$tableseen{$1}) {
+            push(@relationship, $1);
             $tableseen{$1} = 1;
         }
-        while ($tablealias = pop(@tablealias)) {
-            if (! defined $reqd_tables->{$tablealias}) {
-                $reqd_tables->{$tablealias} = $require_type;
-                #print "table required: $tablealias => $require_type\n";
-                $dependencies = $tablealiashref->{$tablealias}{dependencies};
-                push(@tablealias, @$dependencies)
+        while ($relationship = pop(@relationship)) {
+            if (! defined $reqd_tables->{$relationship}) {
+                $reqd_tables->{$relationship} = $require_type;
+                #print "table required: $relationship => $require_type\n";
+                $dependencies = $relationship_defs->{$relationship}{dependencies};
+                push(@relationship, @$dependencies)
                    if (defined $dependencies && ref($dependencies) eq "ARRAY");
             }
-            elsif ($reqd_tables->{$tablealias} < $require_type) {
-                $reqd_tables->{$tablealias} = $require_type;
-                #print "table required: $tablealias => $require_type\n";
+            elsif ($reqd_tables->{$relationship} < $require_type) {
+                $reqd_tables->{$relationship} = $require_type;
+                #print "table required: $relationship => $require_type\n";
             }
         }
     }
@@ -1480,15 +1527,22 @@ sub _mk_update_sql {
     }
 
     # Now determine what to "set"
-    for ($colidx = 0; $colidx <= $#$cols; $colidx++) {
-        next if ($noupdate[$colidx]);
-        $col = $cols->[$colidx];
-        next if ($noupdate{$col});
-        if (!defined $row || $#$row == -1) {
+    my $ref_row = ref($row);
+    if (!$ref_row) {
+        for ($colidx = 0; $colidx <= $#$cols; $colidx++) {
+            next if ($noupdate[$colidx]);
+            $col = $cols->[$colidx];
+            next if ($noupdate{$col});
             push(@set, "$col = ?");
         }
-        else {
-            $value = $row->[$colidx];
+    }
+    else {
+        my $is_array = ($ref_row eq "ARRAY");
+        for ($colidx = 0; $colidx <= $#$cols; $colidx++) {
+            next if ($noupdate[$colidx]);
+            $col = $cols->[$colidx];
+            next if ($noupdate{$col});
+            $value = $is_array ? $row->[$colidx] : $row->{$col};
             if (!defined $value) {
                 push(@set, "$col = NULL");
             }
@@ -1932,8 +1986,8 @@ sub _load_rep_metadata_from_source {
     &App::sub_entry if ($App::trace);
     my ($self) = @_;
 
-    my ($dbidriver, $dbh);
-    $dbidriver = $self->{dbidriver};
+    my ($dbdriver, $dbh);
+    $dbdriver = $self->{dbdriver};
     $dbh = $self->{dbh};
 
     #####################################################
@@ -1952,7 +2006,7 @@ sub _load_rep_metadata_from_source {
 
         # if the DBI method doesn't work, try the DBIx method...
         if ($#tables == -1) {
-            $func = DBIx::Compat::GetItem($dbidriver, "ListTables");
+            $func = DBIx::Compat::GetItem($dbdriver, "ListTables");
             @tables = &{$func}($dbh);
         }
 
@@ -2110,13 +2164,13 @@ sub _load_rep_metadata_from_source {
     #########################################################
     # DATABASE ATTRIBUTES
     #########################################################
-    $self->{native}{support_join}           = DBIx::Compat::GetItem($dbidriver, "SupportJoin");
-    $self->{native}{inner_join_syntax}      = DBIx::Compat::GetItem($dbidriver, "SupportSQLJoin");
-    $self->{native}{inner_join_only2tables} = DBIx::Compat::GetItem($dbidriver, "SQLJoinOnly2Tabs");
-    $self->{native}{have_types}             = DBIx::Compat::GetItem($dbidriver, "HaveTypes");
-    $self->{native}{null_operator}          = DBIx::Compat::GetItem($dbidriver, "NullOperator");
-    $self->{native}{need_null_in_create}    = DBIx::Compat::GetItem($dbidriver, "NeedNullInCreate");
-    $self->{native}{empty_is_null}          = DBIx::Compat::GetItem($dbidriver, "EmptyIsNull");
+    $self->{native}{support_join}           = DBIx::Compat::GetItem($dbdriver, "SupportJoin");
+    $self->{native}{inner_join_syntax}      = DBIx::Compat::GetItem($dbdriver, "SupportSQLJoin");
+    $self->{native}{inner_join_only2tables} = DBIx::Compat::GetItem($dbdriver, "SQLJoinOnly2Tabs");
+    $self->{native}{have_types}             = DBIx::Compat::GetItem($dbdriver, "HaveTypes");
+    $self->{native}{null_operator}          = DBIx::Compat::GetItem($dbdriver, "NullOperator");
+    $self->{native}{need_null_in_create}    = DBIx::Compat::GetItem($dbdriver, "NeedNullInCreate");
+    $self->{native}{empty_is_null}          = DBIx::Compat::GetItem($dbdriver, "EmptyIsNull");
 
     &App::sub_exit() if ($App::trace);
 }
@@ -2127,10 +2181,10 @@ sub _load_table_metadata_from_source {
 
     return if (! $table);
 
-    my ($dbidriver, $dbh, $sth, $native_table, $table_def);
+    my ($dbdriver, $dbh, $sth, $native_table, $table_def);
     my (@tables, $column, $func, $tablealias);
 
-    $dbidriver = $self->{dbidriver};
+    $dbdriver = $self->{dbdriver};
     $dbh = $self->{dbh};
     $table_def = $self->{table}{$table};
     return if (!defined $table_def);
@@ -2161,7 +2215,7 @@ sub _load_table_metadata_from_source {
     my ($colnum, $data_types, $columns, $column_def, $phys_columns);
     my ($native_type_num, $native_type_def, $phys_table);
 
-    $func = DBIx::Compat::GetItem($dbidriver, "ListFields");
+    $func = DBIx::Compat::GetItem($dbdriver, "ListFields");
     eval {
         $sth  = &{$func}($dbh, $table);
     };

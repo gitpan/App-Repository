@@ -2,24 +2,36 @@
 ## File: $Id: TODO,v 1.3 2004/09/02 20:59:16 spadkins Exp $
 ######################################################################
 
- o App::Repository        - Multiple (delegated) repositories
- o App::Repository::MySQL - Shared connections between repositories
- o App::Repository::File
- o App::Repository        - $rep->purge(...)
- o App::Repository::MySQL - $rep->purge(...)
+ o RepositoryObjectSet
 
- o App::Repository        - $rep->set_rows(...)
- o App::Repository        - $rep->maintain(...)
- o App::Repository        - $rep->export(...)
- o App::Repository        - $rep->import(...)
- o App::Repository        - summaries
- o App::Repository        - partitions
- o App::Repository        - defaults
- o App::Repository        - required cols
- o App::Repository        - Read-only
- o App::Repository        - read/write permissions
- o App::Repository::MySQL - load primary key, alternate keys, indexes
- o App::Repository        - ID generation
- o App::Repository::DBI   - ID generation
- o App::Repository::DBI   - cache, allows prepare/execute optimization
+ o caching rows by key
+ o caching row-sets by set-key
+
+ o DBI   - refactored/unified params/cols/values handling
+           - arbitrarily complex where clauses
+
+ o DBI   - auto-reconnect on all operations
+ o DBI   - bind variables on all operations
+ o all   - benchmarks
+ o Remote- make a remote repository work
+ o all   - get related rows (relationships)
+ o all   - $rep->set_rows(...)
+
+ o MySQL - Shared connections between repositories
+ o File
+ o all   - $rep->purge(...)
+ o MySQL - $rep->purge(...)
+
+ o all   - $rep->maintain(...)
+ o all   - $rep->export(...)
+ o all   - $rep->import(...)
+ o all   - summaries
+ o all   - partitions
+ o all   - defaults
+ o all   - required cols
+ o all   - Read-only
+ o all   - read/write permissions
+ o all   - ID generation
+ o DBI   - ID generation
+ o DBI   - "statement" cache, allows prepare/execute optimization
 

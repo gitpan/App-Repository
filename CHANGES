@@ -2,3 +2,11 @@
 # CHANGE LOG
 #########################################
 
+0.93
+ x MySQL - auto_reconnect flag set
+ x DBI   - Reconnect on disconnect in _get_rows()/_get_row() (MySQL-specific?)
+ x MySQL - load primary key, alternate keys, indexes
+ x all   - Multiple (delegated) repositories
+
+0.90 First functional/supportable release
+

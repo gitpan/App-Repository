@@ -29,6 +29,7 @@ my $context = App->context(
             },
         },
     },
+    #debug_sql => 1,
 );
 
 my $rep = $context->repository();
@@ -116,27 +117,41 @@ is($state,    "CA", "get_row() 3 values w/ %crit (checking 2 of 3)");
 is($person_id,   4, "get_row() 3 values w/ %crit (checking 3 of 3)");
 
 my ($hashes, $hash);
+ok($rep->set("test_person", {person_id => 1, age => 40}), "set(table,%hash)");
 $hash = $rep->get_hash("test_person");
 is($hash->{person_id},  1,         "get_hash() person_id");
-is($hash->{age},        39,        "get_hash() age");
+is($hash->{age},        40,        "get_hash() age");
 is($hash->{first_name}, "steve",   "get_hash() first_name");
 is($hash->{gender},     "M",       "get_hash() gender");
 is($hash->{state},      "GA",      "get_hash() state");
 
+ok($rep->set("test_person", 1, {person_id => 1, age => 41}), "set(table,\$key,\%hash)");
 $hash = $rep->get_hash("test_person", 1);
 is($hash->{person_id},  1,         "get_hash(1) person_id");
-is($hash->{age},        39,        "get_hash(1) age");
+is($hash->{age},        41,        "get_hash(1) age");
 is($hash->{first_name}, "steve",   "get_hash(1) first_name");
 is($hash->{gender},     "M",       "get_hash(1) gender");
 is($hash->{state},      "GA",      "get_hash(1) state");
 
+ok($rep->set("test_person", {first_name => "steve"}, {person_id => 1, age => 41}), "set(table,\$params,\%hash)");
+ok($rep->set("test_person", {person_id => 8, age => 37, first_name => "nick", gender => "M", state => "NY"},
+    undef, undef, {create=>1}),
+    "set(table,\$params,\%hash) : insert");
+is($rep->set("test_person", {gender => "F", age => 41}), 0,
+    "set(table,\$params,\%hash) : fails if key not supplied");
 $hashes = $rep->get_hashes("test_person");
 $hash = $hashes->[0];
 is($hash->{person_id},  1,         "get_hashes()->[0] person_id");
-is($hash->{age},        39,        "get_hashes()->[0] age");
+is($hash->{age},        41,        "get_hashes()->[0] age");
 is($hash->{first_name}, "steve",   "get_hashes()->[0] first_name");
 is($hash->{gender},     "M",       "get_hashes()->[0] gender");
 is($hash->{state},      "GA",      "get_hashes()->[0] state");
+$hash = $hashes->[$#$hashes];
+is($hash->{person_id},  8,         "get_hashes()->[n] person_id");
+is($hash->{age},        37,        "get_hashes()->[n] age");
+is($hash->{first_name}, "nick",    "get_hashes()->[n] first_name");
+is($hash->{gender},     "M",       "get_hashes()->[n] gender");
+is($hash->{state},      "NY",      "get_hashes()->[n] state");
 
 exit(0);
 #####################################################################

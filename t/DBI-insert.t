@@ -85,6 +85,50 @@ EOF
     ok($db->_insert_row("test_person", ["person_id","age","first_name","gender","state"],
         [7,39,"keith",    "M","GA"]),
         "insert again");
+    ok($db->insert("test_person", {
+            person_id => 8,
+            age => 35,
+            first_name => "alex",
+            gender => "M",
+            state => "GA",
+        }),
+        "insert hash");
+    eval {
+        $db->insert_row("test_person", {
+            person_id => 8,
+            age => 35,
+            first_name => "alex",
+            gender => "M",
+            state => "GA",
+        });
+    };
+    ok($@, "insert dup hash fails");
+    ok($db->insert("test_person", undef, {
+            person_id => 9,
+            age => 35,
+            first_name => "alex",
+            gender => "M",
+            state => "GA",
+        }),
+        "insert hash in 2nd pos");
+    ok($db->insert("test_person", ["age","first_name","gender","state"], {
+            person_id => 9,
+            age => 35,
+            first_name => "alex",
+            gender => "M",
+            state => "GA",
+        }),
+        "insert hash in 2nd pos w/ col spec");
+    eval {
+        $db->insert_row("test_person", undef, {
+            person_id => 9,
+            age => 35,
+            first_name => "alex",
+            gender => "M",
+            state => "GA",
+        });
+    };
+    ok($@, "insert dup hash in 2nd pos fails");
 }
 
 exit 0;

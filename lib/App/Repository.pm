@@ -1,6 +1,6 @@
 
 #############################################################################
-## $Id: Repository.pm,v 1.11 2004/09/02 21:00:17 spadkins Exp $
+## $Id: Repository.pm,v 1.18 2005/01/07 13:36:56 spadkins Exp $
 #############################################################################
 
 package App::Repository;
@@ -538,7 +538,7 @@ sub set {
     my ($self, $table, $params, $col, $value, $options) = @_;
     $self->_load_table_metadata($table) if (! defined $self->{table}{$table}{loaded});
     my ($nrows);
-    if (ref($col) eq "") {
+    if ($col && ref($col) eq "") {
         $nrows = $self->set_row($table, $params, [$col], [$value], $options);
     }
     else {
@@ -609,10 +609,13 @@ sub get_row {
 
     * Signature: $nrows = $rep->set_row($table, $key,    $cols, $row, $options);
     * Signature: $nrows = $rep->set_row($table, $params, $cols, $row, $options);
+    * Signature: $nrows = $rep->set_row($table, $hash,   undef, undef,$options);
+    * Signature: $nrows = $rep->set_row($table, $params, $hash, undef,$options);
     * Param:     $table     string
     * Param:     $cols      ARRAY
     * Param:     $row       ARRAY
     * Param:     $key       string
+    * Param:     $hash      HASH
     * Param:     $params    undef,HASH
     * Param:     $options   undef,HASH
     * Return:    $nrows     integer
@@ -633,7 +636,62 @@ sub set_row {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $params, $cols, $row, $options) = @_;
     $self->_load_table_metadata($table) if (! defined $self->{table}{$table}{loaded});
-    my $nrows = $self->_set_row($table, $params, $cols, $row, $options);
+
+    my ($nrows, $key_defined);
+    if ($row) {
+        $nrows = $self->_set_row($table, $params, $cols, $row, $options);
+    }
+    else {
+        my ($hash, $columns);
+        if ($cols) {
+            $hash = $cols;
+            my $tabledef = $self->get_table_def($table);
+            $columns = $tabledef->{columns};
+            $columns = [ keys %$hash ] if (!$columns);
+        }
+        else {
+            $hash = $params;     # a hashref was passed in instead of cols/row
+            my $tabledef = $self->get_table_def($table);
+            $columns = $tabledef->{columns};
+            $columns = [ keys %$hash ] if (!$columns);
+            $params = undef;
+        }
+
+        my (@cols, @row);
+        foreach my $col (@$columns) {
+            if (exists $hash->{$col}) {
+                push(@cols, $col);
+                push(@row, $hash->{$col});
+            }
+        }
+
+        $key_defined = 1;
+
+        if (!defined $params) {
+            my $primary_key = $self->{table}{$table}{primary_key};
+            $primary_key = [$primary_key] if (ref($primary_key) eq "");
+            $params = {};
+            my ($col);
+            for (my $keypos = 0; $keypos <= $#$primary_key; $keypos++) {
+                $col = $primary_key->[$keypos];
+                if (defined $hash->{$col}) {
+                    $params->{$col} = $hash->{$col};
+                }
+                else {
+                    $key_defined = 0;
+                    last;
+                }
+            }
+        }
+
+        if ($key_defined) {
+            $nrows = $self->_set_row($table, $params, \@cols, \@row, $options);
+        }
+        else {
+            $nrows = 0;
+        }
+    }
+
     &App::sub_exit($nrows) if ($App::trace);
     return($nrows);
 }
@@ -795,9 +853,9 @@ sub get_hash {
     my ($self, $table, $params, $cols, $options) = @_;
     $cols = [] if (!$cols);
     my $row = $self->get_row($table, $params, $cols, $options);
-    my $hash = {};
-    my ($col, $value);
+    my ($hash, $col, $value);
     if ($row && $#$row > -1) {
+        $hash = {};
         for (my $idx = 0; $idx <= $#$cols; $idx++) {
             $col = $cols->[$idx];
             $value = $row->[$idx];
@@ -899,33 +957,35 @@ sub get_object {
     else {
         $object = $self->get_hash($table, $params, $cols, $options);
     }
-    $object->{_repository} = $self;
-    $object->{_table} = $table;
-    bless $object, $class;
-    if (!ref($params)) {
-        $object->{_key} = $params;
-    }
-    else {
-        my $primary_key = $tabledef->{primary_key};
-        $primary_key = [$primary_key] if (ref($primary_key) eq "");
-        my ($key);
-        if ($primary_key) {
-            $key = undef;
-            foreach my $column (@$primary_key) {
-                if (defined $object->{$column}) {
-                    if (defined $key) {
-                        $key .= "," . $object->{$column};
+    if ($object) {
+        $object->{_repository} = $self;
+        $object->{_table} = $table;
+        bless $object, $class;
+        if (!ref($params)) {
+            $object->{_key} = $params;
+        }
+        else {
+            my $primary_key = $tabledef->{primary_key};
+            $primary_key = [$primary_key] if (ref($primary_key) eq "");
+            my ($key);
+            if ($primary_key) {
+                $key = undef;
+                foreach my $column (@$primary_key) {
+                    if (defined $object->{$column}) {
+                        if (defined $key) {
+                            $key .= "," . $object->{$column};
+                        }
+                        else {
+                            $key = $object->{$column};
+                        }
                     }
                     else {
-                        $key = $object->{$column};
+                        $key = undef;
+                        last;
                     }
                 }
-                else {
-                    $key = undef;
-                    last;
-                }
+                $object->{_key} = $key if (defined $key);
             }
-            $object->{_key} = $key if (defined $key);
         }
     }
     &App::sub_exit($object) if ($App::trace);
@@ -966,10 +1026,10 @@ sub get_objects {
     my $tabledef = $self->{table}{$table};
     my $class = $tabledef->{class} || "App::RepositoryObject";
     App->use($class);
+    my $objects = $self->get_hashes($table, $params, $cols, $options);
     my $primary_key = $tabledef->{primary_key};
     $primary_key = [$primary_key] if (ref($primary_key) eq "");
     my ($key);
-    my $objects = $self->get_hashes($table, $params, $cols, $options);
     foreach my $object (@$objects) {
         $object->{_repository} = $self;
         $object->{_table} = $table;
@@ -995,6 +1055,82 @@ sub get_objects {
     }
     &App::sub_exit($objects) if ($App::trace);
     return($objects);
+}
+
+#############################################################################
+# get_hash_of_values_by_key()
+#############################################################################
+
+=head2 get_hash_of_values_by_key()
+
+    * Signature: $hashes = $rep->get_hash_of_values_by_key ($table, $params, $valuecol, $keycol, $options);
+    * Param:     $table        string
+    * Param:     $params       undef,HASH
+    * Param:     $valuecol     string
+    * Param:     $keycol       string
+    * Param:     $options      undef,HASH
+    * Return:    $hash         HASH
+    * Throws:    App::Exception::Repository
+    * Since:     0.50
+
+    Sample Usage:
+
+    $hash = $rep->get_hash_of_values_by_key ($table, \%params, $valuecol, $keycol, \%options);
+
+tbd.
+
+=cut
+
+sub get_hash_of_values_by_key {
+    &App::sub_entry if ($App::trace);
+    my ($self, $table, $params, $valuecol, $keycol, $options) = @_;
+    my $rows = $self->get_rows($table, $params, [$keycol, $valuecol], $options);
+    my $hash = {};
+    if ($rows && $#$rows > -1) {
+        foreach my $row (@$rows) {
+            $hash->{$row->[0]} = $row->[1];
+        }
+    }
+    &App::sub_exit($hash) if ($App::trace);
+    return($hash);
+}
+
+#############################################################################
+# get_hash_of_hashes_by_key()
+#############################################################################
+
+=head2 get_hash_of_hashes_by_key()
+
+    * Signature: $hashes = $rep->get_hash_of_hashes_by_key ($table, $params, $cols, $keycol, $options);
+    * Param:     $table        string
+    * Param:     $params       undef,HASH
+    * Param:     $cols         ARRAY
+    * Param:     $keycol       string
+    * Param:     $options      undef,HASH
+    * Return:    $hash         HASH
+    * Throws:    App::Exception::Repository
+    * Since:     0.50
+
+    Sample Usage:
+
+    $hash = $rep->get_hash_of_hashes_by_key ($table, \%params, $cols, $keycol, \%options);
+
+tbd.
+
+=cut
+
+sub get_hash_of_hashes_by_key {
+    &App::sub_entry if ($App::trace);
+    my ($self, $table, $params, $cols, $keycol, $options) = @_;
+    my $hashes = $self->get_hashes($table, $params, $cols, $options);
+    my $hash_of_hashes = {};
+    if ($hashes && $#$hashes > -1) {
+        foreach my $hash (@$hashes) {
+            $hash_of_hashes->{$hash->{$keycol}} = $hash;
+        }
+    }
+    &App::sub_exit($hash_of_hashes) if ($App::trace);
+    return($hash_of_hashes);
 }
 
 #############################################################################
@@ -1279,9 +1415,13 @@ sub _set_rows {
 sub _set_row {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $params, $cols, $row, $options) = @_;
+    $options = {} if (!$options);
 
-    $params = $self->_params_to_hashref($table, $params) if (ref($params) ne "HASH");
+    $params = $self->_params_to_hashref($table, $params) if ($params && ref($params) ne "HASH");
     my $nrows = $self->_update($table, $params, $cols, $row, $options);
+    if ($nrows == 0 && $options->{create}) {
+        $nrows = $self->_insert_row($table, $cols, $row, $options);
+    }
 
     &App::sub_exit($nrows) if ($App::trace);
     return($nrows);
@@ -1340,8 +1480,47 @@ sub _key_to_params {
 # $ok = $rep->insert_row ($table, \@cols, \@row);
 sub insert_row {
     &App::sub_entry if ($App::trace);
-    my ($self, $table, $cols, $row) = @_;
-    my $retval = $self->_insert_row($table, $cols, $row);
+    my ($self, $table, $cols, $row, $options) = @_;
+    my ($retval, $hash, $columns);
+    if (ref($cols) eq "HASH") {
+        $hash = $cols;     # a hashref was passed in instead of cols/row
+        my $tabledef = $self->get_table_def($table);
+        $columns = $tabledef->{columns};
+        $columns = [ keys %$hash ] if (!$columns);
+    }
+    elsif (ref($row) eq "HASH") {
+        $hash = $row;
+        if (ref($cols) eq "ARRAY") {
+            $columns = $cols;
+        }
+        else {
+            my $tabledef = $self->get_table_def($table);
+            $columns = $tabledef->{columns};
+            $columns = [ keys %$hash ] if (!$columns);
+        }
+    }
+    if ($hash) {
+        my (@cols, @row);
+        foreach my $col (@$columns) {
+            if (exists $hash->{$col}) {
+                push(@cols, $col);
+                push(@row, $hash->{$col});
+            }
+        }
+        $retval = $self->_insert_row($table, \@cols, \@row, $options);
+    }
+    else {
+        $retval = $self->_insert_row($table, $cols, $row, $options);
+    }
+    &App::sub_exit($retval) if ($App::trace);
+    $retval;
+}
+
+# NOTE: insert() is a synonym for insert_row()
+sub insert {
+    &App::sub_entry if ($App::trace);
+    my ($self, $table, $cols, $row, $options) = @_;
+    my $retval = $self->insert_row($table, $cols, $row, $options);
     &App::sub_exit($retval) if ($App::trace);
     $retval;
 }
@@ -1349,8 +1528,46 @@ sub insert_row {
 # $ok = $rep->insert_rows ($table, \@cols, \@rows);
 sub insert_rows {
     &App::sub_entry if ($App::trace);
-    my ($self, $table, $cols, $rows) = @_;
-    my $retval = $self->_insert_rows($table, $cols, $rows);
+    my ($self, $table, $cols, $rows, $options) = @_;
+    my ($retval, $hashes, $hash, $columns);
+    if (ref($cols) eq "ARRAY" && ref($cols->[0]) eq "HASH") {
+        $hashes = $cols;     # an array of hashrefs was passed in instead of cols/rows
+        $hash = $hashes->[0];
+        my $tabledef = $self->get_table_def($table);
+        $columns = $tabledef->{columns};
+        $columns = [ keys %$hash ] if (!$columns);
+    }
+    elsif (ref($rows) eq "ARRAY" && ref($rows->[0]) eq "HASH") {
+        $hashes = $rows;
+        $hash = $hashes->[0];
+        if (ref($cols) eq "ARRAY") {
+            $columns = $cols;
+        }
+        else {
+            my $tabledef = $self->get_table_def($table);
+            $columns = $tabledef->{columns};
+            $columns = [ keys %$hash ] if (!$columns);
+        }
+    }
+    if ($hashes) {
+        my (@cols, @rows, $col, $row);
+        foreach $col (@$columns) {
+            if (exists $hash->{$col}) {
+                push(@cols, $col);
+            }
+        }
+        foreach $hash (@$hashes) {
+            $row = [];
+            foreach $col (@cols) {
+                push(@$row, $hash->{$col});
+            }
+            push(@rows, $row);
+        }
+        $retval = $self->_insert_rows($table, \@cols, \@rows, $options);
+    }
+    else {
+        $retval = $self->_insert_rows($table, $cols, $rows, $options);
+    }
     &App::sub_exit($retval) if ($App::trace);
     $retval;
 }
@@ -1373,7 +1590,7 @@ sub update {
 
 sub _insert_row {
     &App::sub_entry if ($App::trace);
-    my ($self, $table, $params, $cols, $row, $options) = @_;
+    my ($self, $table, $cols, $row, $options) = @_;
     $self->{error} = "";
     my $retval = 0;
     die "_insert_row(): not yet implemented";
@@ -2203,7 +2420,7 @@ sub _load_rep_metadata {
         $table_def->{name} = $table;
         if (! $table_def->{label}) {
             $label = $table;
-            if ($self->{autolabel}) {
+            if ($self->{auto_label}) {
                 $label = lc($label);
                 $label =~ s/^([a-z])/uc($1)/e;
                 $label =~ s/(_[a-z])/uc($1)/eg;
@@ -2326,7 +2543,7 @@ for the table.
 =cut
 
 sub _load_table_metadata {
-    &App::sub_exit() if ($App::trace);
+    &App::sub_entry if ($App::trace);
     my ($self, $table) = @_;
 
     # if it's already been loaded, don't do it again
@@ -2360,7 +2577,7 @@ sub _load_table_metadata {
         $column_def->{name} = $column;
         if (! $column_def->{label}) {
             $label = $column;
-            if ($self->{autolabel}) {
+            if ($self->{auto_label}) {
                 $label = lc($label);
                 $label =~ s/^([a-z])/uc($1)/e;
                 $label =~ s/(_[a-z])/uc($1)/eg;
@@ -2399,7 +2616,7 @@ sub _load_table_metadata {
         $table_def->{primary_key} = [ split(/ *, */, $table_def->{primary_key}) ];
     }
 
-    &App::sub_entry if ($App::trace);
+    &App::sub_exit() if ($App::trace);
 }
 
 #############################################################################

@@ -1,6 +1,6 @@
 
 #############################################################################
-## $Id: Repository.pm,v 1.1 2003/03/22 04:04:36 spadkins Exp $
+## $Id: Repository.pm,v 1.2 2005/01/07 13:39:40 spadkins Exp $
 #############################################################################
 
 package App::ValueDomain::Repository;
@@ -80,7 +80,7 @@ sub _load {
     if (defined $repository && $repository ne "") {                    # repository-based domain
         if (!defined $values || !defined $labels ||                    # never loaded them yet
             (!$values_string && $self->{values_string}) ||   # asking for the whole domain, only subset loaded
-            ($values_string && $self->{values_string} &&     # asking for a different subset than is loaded
+            (defined $values_string && defined $self->{values_string} &&  # asking for a different subset than is loaded
              $values_string ne $self->{values_string})) {
             $needs_loading = 1;
         }
