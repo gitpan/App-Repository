@@ -1,6 +1,6 @@
 
 #############################################################################
-## $Id: Repository.pm,v 1.18 2005/01/07 13:36:56 spadkins Exp $
+## $Id: Repository.pm,v 1.21 2005/08/09 18:50:17 spadkins Exp $
 #############################################################################
 
 package App::Repository;
@@ -16,7 +16,7 @@ use App::RepositoryObject;
 
 =head1 NAME
 
-App::Repository - Interface for data persistence
+App::Repository - a logical data access layer (works with App::Context), enabling an application to store and retrieve object data, relational data, and scalar data to any data repository such as databases, file systems, remote web sites, etc.
 
 =head1 SYNOPSIS
 
@@ -100,6 +100,8 @@ App::Repository - Interface for data persistence
 
     $rep->commit();
     $rep->rollback();
+    $rep->import_rows($table, $file, $options);
+    $rep->export_rows($table, $file, $options);
 
 =cut
 
@@ -493,14 +495,24 @@ tbd.
 sub get {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $params, $cols, $options) = @_;
-    my ($row);
+    my ($row, $wantarray);
     if (ref($cols) eq "ARRAY") {
-        $row = $self->get_row($table, $params, $cols, $options);
+        $wantarray = 1;
+    }
+    else {
+        $cols = [ $cols ];
+        $wantarray = 0;
+    }
+    $row = $self->get_row($table, $params, $cols, $options);
+    if (!$row) {
+        &App::sub_exit(undef) if ($App::trace);
+        return(undef);
+    }
+    elsif ($wantarray) {
         &App::sub_exit(@$row) if ($App::trace);
         return(@$row);
     }
     else {
-        $row = $self->get_row($table, $params, [$cols], $options);
         &App::sub_exit($row->[0]) if ($App::trace);
         return($row->[0]);
     }
@@ -609,11 +621,13 @@ sub get_row {
 
     * Signature: $nrows = $rep->set_row($table, $key,    $cols, $row, $options);
     * Signature: $nrows = $rep->set_row($table, $params, $cols, $row, $options);
+    * Signature: $nrows = $rep->set_row($table, $params, $cols, $rowhash, $options);
     * Signature: $nrows = $rep->set_row($table, $hash,   undef, undef,$options);
     * Signature: $nrows = $rep->set_row($table, $params, $hash, undef,$options);
     * Param:     $table     string
     * Param:     $cols      ARRAY
     * Param:     $row       ARRAY
+    * Param:     $rowhash   HASH
     * Param:     $key       string
     * Param:     $hash      HASH
     * Param:     $params    undef,HASH
@@ -639,6 +653,10 @@ sub set_row {
 
     my ($nrows, $key_defined);
     if ($row) {
+        my $ref = ref($row);
+        if ($ref && $ref ne "ARRAY") {
+            $row = [ @{$row}{@$cols} ];
+        }
         $nrows = $self->_set_row($table, $params, $cols, $row, $options);
     }
     else {
@@ -1376,12 +1394,12 @@ sub _get_rows {
 sub _set_rows {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $params, $cols, $rows, $options) = @_;
-    $params = $self->_params_to_hashref($table, $params) if (ref($params) ne "HASH");
+    $params = $self->_params_to_hashref($table, $params) if ($params && ref($params) ne "HASH");
 
     my $tabledef = $self->{table}{$table};
 
     my ($primary_key, @keycolidx, $keypos, %keypos, $keys_supplied);
-    my ($row, $colidx, $nrows);
+    my ($row, $colidx, $nrows, $success);
     $nrows = 0;
     if (! defined $params) {
         $primary_key = $tabledef->{primary_key};
@@ -1399,7 +1417,11 @@ sub _set_rows {
         }
         die "Tried to set_rows() and the primary key is not among the columns" if ($keys_supplied != $#$primary_key+1);
         foreach $row (@$rows) {
-            $nrows += $self->_update($table, $cols, $row, \@keycolidx);
+            $success = $self->_update($table, \@keycolidx, $cols, $row, $options);
+            if ($success == 0 && $options->{create}) {
+                $success = $self->_insert_row($table, $cols, $row, $options);
+            }
+            $nrows += $success;
         }
     }
     elsif (ref($params) eq "ARRAY") {
@@ -1482,11 +1504,16 @@ sub insert_row {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $cols, $row, $options) = @_;
     my ($retval, $hash, $columns);
-    if (ref($cols) eq "HASH") {
+    my $ref = ref($cols);
+    if ($ref && $ref ne "ARRAY") {
         $hash = $cols;     # a hashref was passed in instead of cols/row
         my $tabledef = $self->get_table_def($table);
-        $columns = $tabledef->{columns};
-        $columns = [ keys %$hash ] if (!$columns);
+        $columns = [];
+        foreach my $col (@{$tabledef->{columns}}) {
+            if (exists $hash->{$col}) {
+                push(@$columns, $col);
+            }
+        }
     }
     elsif (ref($row) eq "HASH") {
         $hash = $row;
@@ -1495,8 +1522,12 @@ sub insert_row {
         }
         else {
             my $tabledef = $self->get_table_def($table);
-            $columns = $tabledef->{columns};
-            $columns = [ keys %$hash ] if (!$columns);
+            $columns = [];
+            foreach my $col (@{$tabledef->{columns}}) {
+                if (exists $hash->{$col}) {
+                    push(@$columns, $col);
+                }
+            }
         }
     }
     if ($hash) {
@@ -1523,6 +1554,54 @@ sub insert {
     my $retval = $self->insert_row($table, $cols, $row, $options);
     &App::sub_exit($retval) if ($App::trace);
     $retval;
+}
+
+# NOTE: This might be optimized somehow in the future so that I don't
+# need to do a select after insert.  However, there might be defaults
+# set in the database that I don't know about, and I want them to be
+# reflected in the returned object.
+# NOTE 2: Tables which have
+sub new_object {
+    &App::sub_entry if ($App::trace);
+    my ($self, $table, $cols, $row, $options) = @_;
+    my $ref = ref($cols);
+    if ($ref && $ref ne "ARRAY") {
+        $self->_set_defaults($table, $cols);
+        $self->_check_required_fields($table, $cols);
+    }
+    my $retval = $self->insert_row($table, $cols, $row, $options);
+    die "new($table) unable to create a new row" if (!$retval);
+    my $params = $self->_last_inserted_id();
+    if (!$params) {
+        $params = {};
+        for (my $i = 0; $i <= $#$cols; $i++) {
+            if (!$row->[$i] || $row->[$i] !~ /^@/) {
+                $params->{$cols->[$i] . ".eq"} = $row->[$i];
+            }
+        }
+    }
+    my $object = $self->get_object($table, $params, undef, $options);
+    &App::sub_exit($object) if ($App::trace);
+    $object;
+}
+
+sub _set_defaults {
+    &App::sub_entry if ($App::trace);
+    my ($self, $table, $hash) = @_;
+    # TODO: flesh this out
+    &App::sub_exit() if ($App::trace);
+}
+
+sub _check_required_fields {
+    &App::sub_entry if ($App::trace);
+    my ($self, $table, $hash) = @_;
+    # TODO: flesh this out
+    &App::sub_exit() if ($App::trace);
+}
+
+sub _last_inserted_id {
+    my ($self) = @_;
+    return(undef);  # sorry. maybe some subclass will know how to do this.
 }
 
 # $ok = $rep->insert_rows ($table, \@cols, \@rows);
@@ -2106,6 +2185,156 @@ sub commit {
 
 sub rollback {
     my $self = shift;
+}
+
+#############################################################################
+# METHODS
+#############################################################################
+
+=head1 Methods: Import/Export Data From File
+
+=cut
+
+#############################################################################
+# import_rows()
+#############################################################################
+
+=head2 import_rows()
+
+    * Signature: $rep->import_rows($table, $file);
+    * Signature: $rep->import_rows($table, $file, $options);
+    * Param:     $table        string
+    * Param:     $file         string
+    * Param:     $options      named
+    * Param:     columns       ARRAY     names of columns of the fields in the file
+    * Param:     replace       boolean   rows should replace existing rows based on unique indexes
+    * Param:     field_sep     char      character which separates the fields in the file (can by "\t")
+    * Param:     field_quote   char      character which optionally encloses the fields in the file (i.e. '"')
+    * Param:     field_escape  char      character which escapes the quote chars within quotes (i.e. "\")
+    * Return:    void
+    * Throws:    App::Exception::Repository
+    * Since:     0.01
+
+    Sample Usage: 
+
+    $rep->import_rows("usr","usr.dat");
+
+    # root:x:0:0:root:/root:/bin/bash
+    $rep->import_rows("usr", "/etc/passwd" ,{
+        field_sep => ":",
+        columns => [ "username", "password", "uid", "gid", "comment", "home_directory", "shell" ],
+    });
+
+=cut
+
+sub import_rows {
+    &App::sub_entry if ($App::trace);
+    my ($self, $table, $file, $options) = @_;
+    my $columns = $options->{columns} || $self->{table}{$table}{columns};
+    my $field_sep = $options->{field_sep} || ",";
+    my $field_quote = $options->{field_quote};
+    my $field_escape = $options->{field_escape};
+
+    open(App::Repository::DBI::FILE, "< $file") || die "Unable to open $file for reading: $!";
+    my (@row, $quoted_field_regexp, $field_regexp);
+    while (<App::Repository::DBI::FILE>) {
+        chomp;
+        if ($field_quote) {
+            @row = ();
+            # TODO: incorporate escaping
+            $field_regexp        = "$field_sep?$field_quote([^$field_quote]*)$field_quote";
+            $quoted_field_regexp = "$field_sep?([^$field_sep]*)";
+            while ($_) {
+                if ($_ =~ s/^$quoted_field_regexp//) {
+                    push(@row, $1);
+                }
+                elsif ($_ =~ s/^$field_regexp//) {
+                    push(@row, $1);
+                }
+                else {
+                    die "Imported data doesn't match quoted or unquoted field [$_]";
+                }
+            }
+        }
+        else {
+            @row = split(/$field_sep/);
+        }
+        # TODO: use insert_rows() instead of insert_row()
+        $self->insert_row($table, $columns, \@row);
+    }
+    close(App::Repository::DBI::FILE);
+
+    &App::sub_exit() if ($App::trace);
+}
+
+#############################################################################
+# export_rows()
+#############################################################################
+
+=head2 export_rows()
+
+    * Signature: $rep->export_rows($table, $file);
+    * Signature: $rep->export_rows($table, $file, $options);
+    * Param:     $table        string
+    * Param:     $file         string
+    * Param:     $options      named
+    * Param:     columns       ARRAY     names of columns of the fields in the file
+    * Param:     replace       boolean   rows should replace existing rows based on unique indexes
+    * Param:     field_sep     char      character which separates the fields in the file (can by "\t")
+    * Param:     field_quote   char      character which optionally encloses the fields in the file (i.e. '"')
+    * Param:     field_escape  char      character which escapes the quote chars within quotes (i.e. "\")
+    * Return:    void
+    * Throws:    App::Exception::Repository
+    * Since:     0.01
+
+    Sample Usage: 
+
+    $rep->export_rows("usr","usr.dat");
+
+    # root:x:0:0:root:/root:/bin/bash
+    $rep->export_rows("usr", "passwd.dat" ,{
+        field_sep => ":",
+        columns => [ "username", "password", "uid", "gid", "comment", "home_directory", "shell" ],
+    });
+
+=cut
+
+sub export_rows {
+    &App::sub_entry if ($App::trace);
+    my ($self, $table, $file, $options) = @_;
+
+    my $columns = $options->{columns} || $self->{table}{$table}{columns};
+    my $rows = $self->get_rows($table, {}, $columns);
+    my $field_sep = $options->{field_sep} || ",";
+    my $field_quote = $options->{field_quote};
+    my $field_escape = $options->{field_escape};
+
+    open(App::Repository::DBI::FILE, "> $file") || die "Unable to open $file for writing: $!";
+    my ($i, $value);
+    foreach my $row (@$rows) {
+        if ($field_quote) {
+            for ($i = 0; $i <= $#$row; $i++) {
+                print App::Repository::DBI::FILE $field_sep if ($i > 0);
+                $value = $row->[$i];
+                if ($value =~ /$field_sep/) {
+                    if ($field_escape) {
+                        $value =~ s/$field_escape/$field_escape$field_escape/g;
+                        $value =~ s/$field_quote/$field_escape$field_quote/g;
+                    }
+                    print App::Repository::DBI::FILE $field_quote, $value, $field_quote;
+                }
+                else {
+                    print App::Repository::DBI::FILE $value;
+                }
+            }
+        }
+        else {
+            print App::Repository::DBI::FILE join($field_sep, @$row), "\n";
+        }
+    }
+    close(App::Repository::DBI::FILE);
+
+    &App::sub_exit() if ($App::trace);
 }
 
 #############################################################################

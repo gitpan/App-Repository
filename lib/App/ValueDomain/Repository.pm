@@ -1,6 +1,6 @@
 
 #############################################################################
-## $Id: Repository.pm,v 1.2 2005/01/07 13:39:40 spadkins Exp $
+## $Id: Repository.pm,v 1.3 2005/08/09 18:48:45 spadkins Exp $
 #############################################################################
 
 package App::ValueDomain::Repository;
@@ -105,20 +105,38 @@ sub _load {
         my $table       = $self->{table};
         my $valuecolumn = $self->{valuecolumn};
         my $labelcolumn = $self->{labelcolumn};
+        $labelcolumn = "" if ($labelcolumn eq $valuecolumn);
         my $params      = $self->{params} || {};
         my %params      = %$params;
+        my ($key, $keyvalue, $wname, $wvalue);
+        foreach my $key (keys %params) {
+            $keyvalue = $params{$key};
+            while ($keyvalue =~ /\{([A-Za-z0-9\._-]+)\}/) {
+                $wname = $1;
+                $wvalue = $context->so_get($wname);
+                if (defined $wvalue) {
+                    $keyvalue =~ s/\{$wname\}/$wvalue/g;
+                }
+                else {
+                    $keyvalue =~ s/\{$wname\}/NULL/g;
+                }
+            }
+            $params{$key} = $keyvalue;
+        }
         $params{$valuecolumn} = $values_string if (defined $values_string && $values_string ne "");
 
-        if ($rep && $table && $valuecolumn && $labelcolumn && $params) {
-            $rows   = $rep->get_rows($table, \%params, [ $valuecolumn, $labelcolumn ]);
+        if ($rep && $table && $valuecolumn && $params) {
+            my @cols = ( $valuecolumn );
+            push(@cols, $labelcolumn) if ($labelcolumn);
+            $rows   = $rep->get_rows($table, \%params, \@cols);
             $values = [];
             $labels = {};
             foreach $row (@$rows) {
                 push(@$values, $row->[0]);
-                $labels->{$row->[0]} = $row->[1];
+                $labels->{$row->[0]} = $row->[1] if ($labelcolumn);
             }
             $self->{values} = $values;
-            $self->{labels} = $labels;
+            $self->{labels} = $labels if ($labelcolumn);
             $time = time();
             $self->{time} = $time;
             $self->{values_string} = $values_string;

@@ -1,5 +1,17 @@
 #!/usr/local/bin/perl -w
 
+use App::Options (
+    options => [qw(dbdriver dbclass dbhost dbname dbuser dbpass)],
+    option => {
+        dbclass  => { default => "App::Repository::MySQL", },
+        dbdriver => { default => "mysql", },
+        dbhost   => { default => "localhost", },
+        dbname   => { default => "test", },
+        dbuser   => { default => "scott", },
+        dbpass   => { default => "tiger", },
+    },
+);
+
 use Test::More qw(no_plan);
 use lib "../App-Context/lib";
 use lib "../../App-Context/lib";
@@ -15,12 +27,12 @@ my $context = App->context(
     conf => {
         Repository => {
             default => {
-                class => "App::Repository::MySQL",
-                dbidriver => "mysql",
-                dbhost => "frento",
-                dbname => "test",
-                dbuser => "dbuser",
-                dbpass => "dbuser7",
+                class => $App::options{dbclass},
+                dbdriver => $App::options{dbdriver},
+                dbhost => $App::options{dbhost},
+                dbname => $App::options{dbname},
+                dbuser => $App::options{dbuser},
+                dbpass => $App::options{dbpass},
                 table => {
                     test_person => {
                         primary_key => ["person_id"],
@@ -114,6 +126,14 @@ $row = $rep->get_row("test_person", {first_name=>'paul'}, ["age", "state","perso
 ($age, $state, $person_id) = @$row;
 is($age,         5, "get_row() 3 values w/ %crit (checking 1 of 3)");
 is($state,    "CA", "get_row() 3 values w/ %crit (checking 2 of 3)");
+is($person_id,   4, "get_row() 3 values w/ %crit (checking 3 of 3)");
+
+ok($rep->set_row("test_person", {first_name=>'paul'}, ["age", "state"], {age=>6, state=>"GA", person_id=>99}),
+   "set_row() 2 values w/ %crit and values in hash");
+$row = $rep->get_row("test_person", {first_name=>'paul'}, ["age", "state","person_id"]);
+($age, $state, $person_id) = @$row;
+is($age,         6, "get_row() 3 values w/ %crit (checking 1 of 3)");
+is($state,    "GA", "get_row() 3 values w/ %crit (checking 2 of 3)");
 is($person_id,   4, "get_row() 3 values w/ %crit (checking 3 of 3)");
 
 my ($hashes, $hash);

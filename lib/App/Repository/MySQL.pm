@@ -1,12 +1,12 @@
 
 ######################################################################
-## File: $Id: MySQL.pm,v 1.10 2004/12/09 21:54:12 spadkins Exp $
+## File: $Id: MySQL.pm,v 1.11 2005/08/09 18:55:48 spadkins Exp $
 ######################################################################
 
 use App::Repository::DBI;
 
 package App::Repository::MySQL;
-$VERSION = do { my @r=(q$Revision: 1.10 $=~/\d+/g); sprintf "%d."."%02d"x$#r,@r};
+$VERSION = do { my @r=(q$Revision: 1.11 $=~/\d+/g); sprintf "%d."."%02d"x$#r,@r};
 
 @ISA = ( "App::Repository::DBI" );
 
@@ -95,6 +95,11 @@ sub _mk_select_sql_suffix {
     return($suffix);
 }
 
+sub _last_inserted_id {
+    my ($self) = @_;
+    return($self->{dbh}{mysql_insertid});
+}
+
 sub _load_table_key_metadata {
     &App::sub_entry if ($App::trace);
     my ($self, $table) = @_;
@@ -174,6 +179,187 @@ sub _load_table_key_metadata {
 #sub column_info {
 #    my ($dbh, $catalog, $schema, $table, $column) = @_;
 #    return $dbh->set_err(1, "column_info doesn't support table wildcard")
+
+#############################################################################
+# METHODS
+#############################################################################
+
+=head1 Methods: Import/Export Data From File
+
+=cut
+
+#############################################################################
+# import_rows()
+#############################################################################
+
+=head2 import_rows()
+
+    * Signature: $rep->import_rows($table, $file);
+    * Signature: $rep->import_rows($table, $file, $options);
+    * Param:     $table        string
+    * Param:     $file         string
+    * Param:     $options      named
+    * Param:     columns       ARRAY     names of columns of the fields in the file
+    * Param:     method        string    [basic=invokes generic superclass to do work]
+    * Param:     local         boolean   file is on client machine rather than database server
+    * Param:     replace       boolean   rows should replace existing rows based on unique indexes
+    * Param:     field_sep     char      character which separates the fields in the file (can by "\t")
+    * Param:     field_quote   char      character which optionally encloses the fields in the file (i.e. '"')
+    * Param:     field_escape  char      character which escapes the quote chars within quotes (i.e. "\")
+    * Return:    void
+    * Throws:    App::Exception::Repository
+    * Since:     0.01
+
+    Sample Usage: 
+
+    $rep->import_rows("usr","usr.dat");
+
+    # root:x:0:0:root:/root:/bin/bash
+    $rep->import_rows("usr", "/etc/passwd" ,{
+        field_sep => ":",
+        columns => [ "username", "password", "uid", "gid", "comment", "home_directory", "shell" ],
+    });
+
+=cut
+
+#SYNTAX:
+#LOAD DATA [LOW_PRIORITY | CONCURRENT] [LOCAL] INFILE 'file_name.txt'
+#    [REPLACE | IGNORE]
+#    INTO TABLE tbl_name
+#    [FIELDS
+#        [TERMINATED BY 'string']
+#        [[OPTIONALLY] ENCLOSED BY 'char']
+#        [ESCAPED BY 'char' ]
+#    ]
+#    [LINES
+#        [STARTING BY 'string']
+#        [TERMINATED BY 'string']
+#    ]
+#    [IGNORE number LINES]
+#    [(col_name_or_user_var,...)]
+#    [SET col_name = expr,...)]
+
+sub import_rows {
+    &App::sub_entry if ($App::trace);
+    my ($self, $table, $file, $options) = @_;
+
+    if ($options->{method} && $options->{method} eq "basic") {
+        $self->SUPER::import_rows($table, $file, $options);
+    }
+    else {
+        my $local = $options->{local};
+        $local = 1 if (!defined $local);
+        my $local_modifier = $local ? " local" : "";
+        my $sql = "load data$local_modifier infile '$file' into table $table";
+        if ($options->{field_sep} || $options->{field_quote} || $options->{field_escape}) {
+            $sql .= "\nfields";
+            $sql .= "\n   terminated by '$options->{field_sep}'" if ($options->{field_sep});
+            $sql .= "\n   optionally enclosed by '$options->{field_quote}'" if ($options->{field_quote});
+            $sql .= "\n   escaped by '$options->{field_escape}'" if ($options->{field_escape});
+        }
+        if ($options->{columns}) {
+            $sql .= "\n(" . join(",", @{$options->{columns}}) . ")";
+        }
+        my $debug_sql = $self->{context}{options}{debug_sql};
+        if ($debug_sql) {
+            print "DEBUG_SQL: import_rows()\n";
+            print $sql;
+        }
+        my $retval = $self->{dbh}->do($sql);
+        if ($debug_sql) {
+            print "DEBUG_SQL: import_rows() = [$retval]\n";
+        }
+    }
+
+    &App::sub_exit() if ($App::trace);
+}
+
+#############################################################################
+# export_rows()
+#############################################################################
+
+=head2 export_rows()
+
+    * Signature: $rep->export_rows($table, $file);
+    * Signature: $rep->export_rows($table, $file, $options);
+    * Param:     $table        string
+    * Param:     $file         string
+    * Param:     $options      named
+    * Param:     columns       ARRAY     names of columns of the fields in the file
+    * Param:     method        string    [basic=invokes generic superclass to do work]
+    * Param:     field_sep     char      character which separates the fields in the file (can by "\t")
+    * Param:     field_quote   char      character which optionally encloses the fields in the file (i.e. '"')
+    * Param:     field_escape  char      character which escapes the quote chars within quotes (i.e. "\")
+    * Return:    void
+    * Throws:    App::Exception::Repository
+    * Since:     0.01
+
+    Sample Usage: 
+
+    $rep->export_rows("usr","usr.dat");
+
+    # root:x:0:0:root:/root:/bin/bash
+    $rep->export_rows("usr", "passwd.dat" ,{
+        field_sep => ":",
+        columns => [ "username", "password", "uid", "gid", "comment", "home_directory", "shell" ],
+    });
+
+=cut
+
+#SELECT ... INTO OUTFILE is the complement of LOAD DATA INFILE; the syntax for the
+#export_options part of the statement consists of the same FIELDS and LINES clauses
+#that are used with the LOAD DATA INFILE statement.
+#See Section 13.2.5, .LOAD DATA INFILE Syntax..
+
+#SELECT
+#    [ALL | DISTINCT | DISTINCTROW ]
+#      [HIGH_PRIORITY]
+#      [STRAIGHT_JOIN]
+#      [SQL_SMALL_RESULT] [SQL_BIG_RESULT] [SQL_BUFFER_RESULT]
+#      [SQL_CACHE | SQL_NO_CACHE] [SQL_CALC_FOUND_ROWS]
+#    select_expr, ...
+#    [INTO OUTFILE 'file_name' export_options
+#      | INTO DUMPFILE 'file_name']
+#    [FROM table_references
+#      [WHERE where_definition]
+#      [GROUP BY {col_name | expr | position}
+#        [ASC | DESC], ... [WITH ROLLUP]]
+#      [HAVING where_definition]
+#      [ORDER BY {col_name | expr | position}
+#        [ASC | DESC] , ...]
+#      [LIMIT {[offset,] row_count | row_count OFFSET offset}]
+#      [PROCEDURE procedure_name(argument_list)]
+#      [FOR UPDATE | LOCK IN SHARE MODE]]
+
+sub export_rows {
+    &App::sub_entry if ($App::trace);
+    my ($self, $table, $file, $options) = @_;
+
+    if ($options->{method} && $options->{method} eq "basic") {
+        $self->SUPER::export_rows($table, $file, $options);
+    }
+    else {
+        my $columns = $options->{columns} || $self->{table}{$table}{columns};
+        my $sql = "select\n   " . join(",\n   ", @$columns) . "\ninto outfile '$file'";
+        if ($options->{field_sep} || $options->{field_quote} || $options->{field_escape}) {
+            $sql .= "\nfields";
+            $sql .= "\n   terminated by '$options->{field_sep}'" if ($options->{field_sep});
+            $sql .= "\n   optionally enclosed by '$options->{field_quote}'" if ($options->{field_quote});
+            $sql .= "\n   escaped by '$options->{field_escape}'" if ($options->{field_escape});
+        }
+        my $debug_sql = $self->{context}{options}{debug_sql};
+        if ($debug_sql) {
+            print "DEBUG_SQL: export_rows()\n";
+            print $sql;
+        }
+        my $retval = $self->{dbh}->do($sql);
+        if ($debug_sql) {
+            print "DEBUG_SQL: export_rows() = [$retval]\n";
+        }
+    }
+    
+    &App::sub_exit() if ($App::trace);
+}
 
 1;
 

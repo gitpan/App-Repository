@@ -9,7 +9,8 @@ lib/App/Repository/File.pm
 lib/App/Repository/FileSystem.pm
 lib/App/Repository/MySQL.pm
 lib/App/RepositoryObject.pm
-lib/App/RepositoryObjectSet.pm
+lib/App/SessionObject/RepositoryObjectSet.pm
+lib/App/SessionObject/RepositoryObjectDomain.pm
 lib/App/ValueDomain/Repository.pm
 t/DBI-connect.t
 t/DBI-delete.t
@@ -21,3 +22,4 @@ t/DBI-repobjectset.t
 t/DBI-select.t
 t/DBI-update.t
 t/FileSystem.t
+META.yml                                 Module meta-data (added by MakeMaker)

@@ -2,6 +2,22 @@
 # CHANGE LOG
 #########################################
 
+0.95
+ x add "config_from_options" as a default behavior for App::Repository::DBI
+ x add $rep->new_object($table, {@initializers}); (and tests)
+ x add $repobj->delete(); (and tests)
+ x add $rep->export_rows(...)  (export to file)
+ x add $rep->import_rows(...)  (import from file)
+
+0.94
+ x add "distinct => 1" to options hash for get_rows()/get_row()
+ x recognize the following special cases in inferred-op params: '' (same as as 'ALL' in non-quoted/numeric params)
+ x recognize the following special cases in inferred-op params: 'ALL','NULL','NULL,value','@[db expr]'
+ x support set() with hash values. i.e. set($table,\@cols,\%values)
+ x fix set_rows() to work (also with create option)
+ x support compressed columns (through dbexpr/dbexpr_update)
+ x changed test scripts to be driven by App::Options
+
 0.93
  x MySQL - auto_reconnect flag set
  x DBI   - Reconnect on disconnect in _get_rows()/_get_row() (MySQL-specific?)

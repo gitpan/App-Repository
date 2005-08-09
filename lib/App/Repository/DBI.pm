@@ -1,13 +1,13 @@
 
 ######################################################################
-## File: $Id: DBI.pm,v 1.21 2004/12/14 15:42:14 spadkins Exp $
+## File: $Id: DBI.pm,v 1.27 2005/08/09 18:52:25 spadkins Exp $
 ######################################################################
 
 use App;
 use App::Repository;
 
 package App::Repository::DBI;
-$VERSION = do { my @r=(q$Revision: 1.21 $=~/\d+/g); sprintf "%d."."%02d"x$#r,@r};
+$VERSION = do { my @r=(q$Revision: 1.27 $=~/\d+/g); sprintf "%d."."%02d"x$#r,@r};
 
 @ISA = ( "App::Repository" );
 
@@ -310,12 +310,20 @@ sub _init2 {
         $self->{preconnected} = 1;
     }
     else {
-        my ($var, $capsvar);
-        foreach $var qw(dbdriver dbname dbuser dbpass dbioptions dbschema) {
-            if (! defined $self->{$var}) {
-                $capsvar = uc($var);
-                if ($ENV{$capsvar}) {
-                    $self->{$var} = $ENV{$capsvar};
+        my $options = $self->{context}{options} || {};
+
+        my $config_from_options = 1;
+        foreach my $var qw(dbdsn dbdriver dbhost dbport dbname dbuser dbpass dbschema dbioptions) {
+            if ($self->{$var}) {
+                $config_from_options = 0;
+                last;
+            }
+        }
+
+        if ($config_from_options) {
+            foreach my $var qw(dbdsn dbdriver dbhost dbport dbname dbuser dbpass dbschema dbioptions) {
+                if (defined $options->{$var}) {
+                    $self->{$var} = $options->{$var};
                 }
             }
         }
@@ -399,6 +407,7 @@ sub _get_rows {
         $sql = $self->_mk_select_joined_sql($table, $params, $cols, $options);
     }
     $self->{sql} = $sql;
+    die "empty SQL query for table [$table] (does table exist?)" if (!$sql);
 
     $self->_connect() if (!$self->{dbh});
 
@@ -568,14 +577,17 @@ sub _mk_where_clause {
         $param_order = [ (keys %$params) ];
     }
     if (defined $param_order && $#$param_order > -1) {
+        my ($include_null, $inferred_op, @where);
         for ($colnum = 0; $colnum <= $#$param_order; $colnum++) {
             $param = $param_order->[$colnum];
             $column = $param;
             $sqlop = "=";
             $repop = "";
+            $inferred_op = 1;
             # check if $column contains an embedded operation, i.e. "name.eq", "name.contains"
             if ($param =~ /^(.*)\.([^.]+)$/) {
                 $repop = $2;
+                $inferred_op = 0;
                 if ($sqlop{$repop}) {
                     $column = $1;
                     $sqlop = $sqlop{$repop};
@@ -583,7 +595,7 @@ sub _mk_where_clause {
             }
 
             if ($repop eq "verbatim") {
-                $where .= ($colnum == 0) ? "where $params->{$param}\n" : "  and $params->{$param}\n";
+                push(@where, "$params->{$param}");
                 next;
             }
 
@@ -602,23 +614,29 @@ sub _mk_where_clause {
             }
 
             next if (!defined $column_def);  # skip if the column is unknown
+
             if (! defined $params->{$param}) {
                 # $value = "?";   # TODO: make this work with the "contains/matches" operators
                 if (!$sqlop || $sqlop eq "=") {
-                    $where .= ($colnum == 0) ? "where $column is null\n" : "  and $column is null\n";
+                    push(@where, "$column is null");
                 }
                 else {
-                    $where .= ($colnum == 0) ? "where $column is not null\n" : "  and $column is not null\n";
+                    push(@where, "$column is not null");
                 }
             }
             else {
                 $value = $params->{$param};
 
+                next if ($inferred_op && $value eq "ALL");
+
                 if (ref($value) eq "ARRAY") {
                     $value = join(",", @$value);
                 }
 
-                if ($value =~ s/^@\{(.*)\}$/$1/) {  # new @{} expressions replace !expr!
+                if ($value =~ s/^@\[(.*)\]$/$1/) {  # new @[] expressions replace !expr!
+                    $quoted = 0;
+                }
+                elsif ($value =~ s/^@\{(.*)\}$/$1/) {  # replaced !expr!, but @{x} is interp'd by perl so deprecate!
                     $quoted = 0;
                 }
                 elsif ($value =~ s/^!expr!//) { # deprecated (ugh!)
@@ -630,6 +648,10 @@ sub _mk_where_clause {
                 else {
                     $quoted = (defined $column_def->{quoted}) ? ($column_def->{quoted}) : ($value !~ /^-?[0-9.]+$/);
                 }
+
+                next if ($inferred_op && !$quoted && $value eq "");
+
+                $include_null = 0;
 
                 if ($repop eq "contains") {
                     $value =~ s/'/\\'/g;
@@ -643,25 +665,34 @@ sub _mk_where_clause {
                     $value = "'$value'";
                 }
                 elsif ($sqlop eq "in" || $sqlop eq "=") {
-                    if ($quoted) {
-                        $value =~ s/'/\\'/g;
-                        if ($value =~ /,/ && ! $tabledef->{param}{$param}{no_auto_in_param}) {
-                            $value =~ s/,/','/g;
-                            $value = "('$value')";
-                            $sqlop = "in";
-                        }
-                        else {
-                            $value = "'$value'";
-                            $sqlop = "=";
-                        }
+                    if (! defined $value || $value eq "NULL") {
+                        $sqlop = "is";
+                        $value = "null";
                     }
                     else {
-                        if ($value =~ /,/ && ! $tabledef->{param}{$param}{no_auto_in_param}) {
-                            $value = "($value)";
-                            $sqlop = "in";
+                        if ($value =~ s/NULL,//g || $value =~ s/,NULL//) {
+                            $include_null = 1;
+                        }
+                        if ($quoted) {
+                            $value =~ s/'/\\'/g;
+                            if ($value =~ /,/ && ! $tabledef->{param}{$param}{no_auto_in_param}) {
+                                $value =~ s/,/','/g;
+                                $value = "('$value')";
+                                $sqlop = "in";
+                            }
+                            else {
+                                $value = "'$value'";
+                                $sqlop = "=";
+                            }
                         }
                         else {
-                            $sqlop = "=";
+                            if ($value =~ /,/ && ! $tabledef->{param}{$param}{no_auto_in_param}) {
+                                $value = "($value)";
+                                $sqlop = "in";
+                            }
+                            else {
+                                $sqlop = "=";
+                            }
                         }
                     }
                 }
@@ -674,8 +705,16 @@ sub _mk_where_clause {
                     $column = $dbexpr;
                     $column =~ s/$alias.//g;
                 }
-                $where .= ($colnum == 0) ? "where $column $sqlop $value\n" : "  and $column $sqlop $value\n";
+                if ($include_null) {
+                    push(@where, "($column $sqlop $value or $column is null)");
+                }
+                else {
+                    push(@where, "$column $sqlop $value");
+                }
             }
+        }
+        if ($#where > -1) {
+            $where = "where " . join("\n  and ", @where) . "\n";
         }
     }
     &App::sub_exit($where) if ($App::trace);
@@ -695,8 +734,9 @@ sub _mk_select_sql {
     $order_by = $options->{order_by} || $options->{ordercols} || [];  # {ordercols} is deprecated
     $order_by = [$order_by] if (!ref($order_by));
     $direction = $options->{direction} || $options->{directions};     # {directions} is deprecated
+    my $modifier = $options->{distinct} ? " distinct" : "";
 
-    $sql = "select\n   " . join(",\n   ", @$cols) . "\nfrom $table\n";
+    $sql = "select$modifier\n   " . join(",\n   ", @$cols) . "\nfrom $table\n";
     $sql .= $self->_mk_where_clause($table, $params);
 
     if (defined $order_by && $#$order_by > -1) {
@@ -746,10 +786,11 @@ sub _mk_select_joined_sql {
     $cols = [$cols] if (!ref($cols));
     $options = {} if (!$options);
 
-    my ($order_by, $direction, $param_order, $col, $colnum, $dir);
+    my ($order_by, $direction, $param_order, $col, $dir);
     $order_by = $options->{order_by} || $options->{ordercols} || [];  # {ordercols} is deprecated
     $order_by = [$order_by] if (!ref($order_by));
     $direction = $options->{direction} || $options->{directions};     # {directions} is deprecated
+    my $modifier = $options->{distinct} ? " distinct" : "";
 
     $param_order = $params->{"_order"};
     if (!defined $param_order && ref($params) eq "HASH") {
@@ -1020,6 +1061,7 @@ sub _mk_select_joined_sql {
     );
 
     my ($where_condition, @join_conditions, @criteria_conditions, $param, $repop, $sqlop, $paramvalue);
+    my ($include_null, $inferred_op);
     for ($idx = 0; $idx <= $#$param_order; $idx++) {
 
         $param = $param_order->[$idx];
@@ -1044,9 +1086,11 @@ sub _mk_select_joined_sql {
 
         $sqlop = "=";
         $repop = "";
+        $inferred_op = 1;
         # check if $param contains an embedded operation, i.e. "name.eq", "name.contains"
         if ($param =~ /^(.*)\.([^.]+)$/) {
             $repop = $2;
+            $inferred_op = 0;
             if ($sqlop{$repop}) {
                 $column = $1;
                 $sqlop = $sqlop{$repop};
@@ -1074,6 +1118,8 @@ sub _mk_select_joined_sql {
 
         next if (!defined $column_def);  # skip if the column is unknown
 
+        $include_null = 0;
+
         if (! defined $params->{$param}) {
             # $paramvalue = "?";   # TODO: make this work with the "contains/matches" operators
             $sqlop = (!$sqlop || $sqlop eq "=") ? "is" : "is not";
@@ -1085,11 +1131,16 @@ sub _mk_select_joined_sql {
             next if (defined $table_def->{param}{$param}{all_value} &&
                      $paramvalue eq $table_def->{param}{$param}{all_value});
 
+            next if ($inferred_op && $paramvalue eq "ALL");
+
             if (ref($paramvalue) eq "ARRAY") {
                 $paramvalue = join(",", @$paramvalue);
             }
 
-            if ($paramvalue =~ s/^@\{(.*)\}$/$1/) {  # new @{} expressions replace !expr!
+            if ($paramvalue =~ s/^@\[(.*)\]$/$1/) {  # new @[] expressions replace !expr!
+                $quoted = 0;
+            }
+            elsif ($paramvalue =~ s/^@\{(.*)\}$/$1/) {  # new @{} don't work.. perl interpolates... deprecate.
                 $quoted = 0;
             }
             elsif ($paramvalue =~ s/^!expr!//) { # deprecated (ugh!)
@@ -1101,6 +1152,8 @@ sub _mk_select_joined_sql {
             else {
                 $quoted = (defined $column_def->{quoted}) ? ($column_def->{quoted}) : ($paramvalue !~ /^-?[0-9.]+$/);
             }
+
+            next if ($inferred_op && !$quoted && $paramvalue eq "");
 
             if ($repop eq "contains") {
                 $paramvalue =~ s/'/\\'/g;
@@ -1114,25 +1167,35 @@ sub _mk_select_joined_sql {
                 $paramvalue = "'$paramvalue'";
             }
             elsif ($sqlop eq "in" || $sqlop eq "=") {
-                if ($quoted) {
-                    $paramvalue =~ s/'/\\'/g;
-                    if ($paramvalue =~ /,/ && ! $table_def->{param}{$param}{no_auto_in_param}) {
-                        $paramvalue =~ s/,/','/g;
-                        $paramvalue = "('$paramvalue')";
-                        $sqlop = "in";
-                    }
-                    else {
-                        $paramvalue = "'$paramvalue'";
-                        $sqlop = "=";
-                    }
+
+                if (! defined $paramvalue || $paramvalue eq "NULL") {
+                    $sqlop = "is";
+                    $paramvalue = "null";
                 }
                 else {
-                    if ($paramvalue =~ /,/ && ! $table_def->{param}{$param}{no_auto_in_param}) {
-                        $paramvalue = "($paramvalue)";
-                        $sqlop = "in";
+                    if ($paramvalue =~ s/NULL,//g || $paramvalue =~ s/,NULL//) {
+                        $include_null = 1;
+                    }
+                    if ($quoted) {
+                        $paramvalue =~ s/'/\\'/g;
+                        if ($paramvalue =~ /,/ && ! $table_def->{param}{$param}{no_auto_in_param}) {
+                            $paramvalue =~ s/,/','/g;
+                            $paramvalue = "('$paramvalue')";
+                            $sqlop = "in";
+                        }
+                        else {
+                            $paramvalue = "'$paramvalue'";
+                            $sqlop = "=";
+                        }
                     }
                     else {
-                        $sqlop = "=";
+                        if ($paramvalue =~ /,/ && ! $table_def->{param}{$param}{no_auto_in_param}) {
+                            $paramvalue = "($paramvalue)";
+                            $sqlop = "in";
+                        }
+                        else {
+                            $sqlop = "=";
+                        }
                     }
                 }
             }
@@ -1145,7 +1208,12 @@ sub _mk_select_joined_sql {
         $dbexpr = $column_def->{dbexpr};
         if (defined $dbexpr && $dbexpr ne "") {
             $self->_require_tables($dbexpr, \%reqd_tables, $tablealiashref, 2);
-            push(@criteria_conditions, "$dbexpr $sqlop $paramvalue");
+            if ($include_null) {
+                push(@criteria_conditions, "($dbexpr $sqlop $paramvalue or $dbexpr is null)");
+            }
+            else {
+                push(@criteria_conditions, "$dbexpr $sqlop $paramvalue");
+            }
         }
     }
 
@@ -1246,7 +1314,7 @@ sub _mk_select_joined_sql {
     my ($sql, $conjunction);
 
     if ($#select_phrase >= 0) {
-        $sql = "select\n   " .
+        $sql = "select$modifier\n   " .
                         join(",\n   ",@select_phrase) . "\n" .
                  "from\n   " .
                         join(",\n   ",@from_tables) . "\n";
@@ -1370,6 +1438,9 @@ sub _mk_insert_row_sql {
             }
         }
         $sql .= ($colnum == 0) ? "  ($col" : ",\n   $col";
+        if ($tabcols->{$col}{dbexpr_update}) {
+            $value = sprintf($tabcols->{$col}{dbexpr_update}, $value);
+        }
         $values .= ($colnum == 0) ? "  ($value" : ",\n   $value";
     }
     $sql .= ")\n";
@@ -1416,6 +1487,9 @@ sub _mk_insert_sql {
                 if ($quoted) {
                     $value =~ s/'/\\'/g;
                     $value = "'$value'";
+                }
+                if ($tabcols->{$col}{dbexpr_update}) {
+                    $value = sprintf($tabcols->{$col}{dbexpr_update}, $value);
                 }
                 push(@values, $value);
             }
@@ -1551,6 +1625,9 @@ sub _mk_update_sql {
                 if ($quoted && !$by_expression) {
                     $value =~ s/'/\\'/g;
                     $value = "'$value'";
+                }
+                if ($tabcols->{$col}{dbexpr_update}) {
+                    $value = sprintf($tabcols->{$col}{dbexpr_update}, $value);
                 }
                 push(@set, "$col = $value");
             }
@@ -1718,7 +1795,7 @@ sub _mk_delete_rows_sql {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $params, $paramvalues) = @_;
     $self->_load_table_metadata($table) if (!defined $self->{table}{$table}{loaded});
-    my ($sql, $col, $colnum);
+    my ($sql);
 
     $sql = "delete from $table\n";
     $sql .= $self->_mk_where_clause($table, $params);

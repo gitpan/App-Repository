@@ -1,5 +1,17 @@
 #!/usr/local/bin/perl -w
 
+use App::Options (
+    options => [qw(dbdriver dbclass dbhost dbname dbuser dbpass)],
+    option => {
+        dbclass  => { default => "App::Repository::MySQL", },
+        dbdriver => { default => "mysql", },
+        dbhost   => { default => "localhost", },
+        dbname   => { default => "test", },
+        dbuser   => { default => "scott", },
+        dbpass   => { default => "tiger", },
+    },
+);
+
 use Test::More qw(no_plan);
 use lib "../App-Context/lib";
 use lib "../../App-Context/lib";
@@ -15,12 +27,12 @@ my $context = App->context(
     conf => {
         Repository => {
             default => {
-                class => "App::Repository::MySQL",
-                dbidriver => "mysql",
-                dbhost => "frento",
-                dbname => "test",
-                dbuser => "dbuser",
-                dbpass => "dbuser7",
+                class => $App::options{dbclass},
+                dbdriver => $App::options{dbdriver},
+                dbhost => $App::options{dbhost},
+                dbname => $App::options{dbname},
+                dbuser => $App::options{dbuser},
+                dbpass => $App::options{dbpass},
                 table => {
                     test_person => {
                         primary_key => ["person_id"],
@@ -30,8 +42,12 @@ my $context = App->context(
         },
         SessionObject => {
             adults => {
-                class => "App::RepositoryObjectSet",
-                "age.ge" => 18,
+                class => "App::SessionObject::RepositoryObjectSet",
+                #repository => "default",
+                #table => "test_person",
+                #params => {
+                #    "age.ge" => 18,
+                #},
             },
         },
     },
@@ -98,6 +114,39 @@ my ($row, $nrows);
 {
     my $objset = $context->session_object("adults");
     ok(1, "looks good");
+    my ($objects, $index);
+    eval {
+        $objects = $objset->get_objects();
+    };
+    ok($@ =~ /table not defined/, "table not defined");
+    $objset->set_table("test_person");
+    $objects = $objset->get_objects();
+    ok($#$objects == 6, "got all 7 objects");
+    $objset->set_params({ "age.ge" => 18 });
+    $objects = $objset->get_objects();
+    ok($#$objects == 3, "got 4 objects");
+    $objset->set_params({});
+    $objects = $objset->get_objects("F",["gender"]);
+    ok($#$objects == 2, "got 3 female objects");
+    $objects = $objset->get_objects("M");
+    ok($#$objects == 3, "got 4 male objects");
+    $index = $objset->get_index();
+    ok(ref($index) eq "HASH", "got a hashref for an index");
+    ok(defined $index->{M}, "M part of index found");
+    ok(defined $index->{F}, "F part of index found");
+    ok(ref($index->{M}) eq "ARRAY", "M part of index ARRAY ref");
+    ok(ref($index->{F}) eq "ARRAY", "F part of index ARRAY ref");
+    my $values = $objset->get_column_values("gender");
+    is_deeply($values, ["M","F"], "gender values");
+    $index = $objset->get_unique_index("ak1", ["first_name"]);
+    is($index->{stephen}{age}, 39, "get_unique_index worked on stephen");
+    $objset->set_params({ "age.ge" => 1 });
+    $objset->update_params({ "age.ge" => 18, first_name => "stephen"});
+    $objects = $objset->get_objects();
+    ok($#$objects == 3, "got 4 objects");
+    $objset->get_unique_index(["first_name"]);
+    my $object = $objset->get_object("stephen");
+    ok($object->{age} == 39, "got stephen object (age 39)");
 }
 
 {
@@ -105,5 +154,4 @@ my ($row, $nrows);
     $dbh->do("drop table test_person");
 }
 
-exit 0;
-
+exit 0; 

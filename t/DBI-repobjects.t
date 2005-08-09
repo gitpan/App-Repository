@@ -1,5 +1,17 @@
 #!/usr/local/bin/perl -w
 
+use App::Options (
+    options => [qw(dbdriver dbclass dbhost dbname dbuser dbpass)],
+    option => {
+        dbclass  => { default => "App::Repository::MySQL", },
+        dbdriver => { default => "mysql", },
+        dbhost   => { default => "localhost", },
+        dbname   => { default => "test", },
+        dbuser   => { default => "scott", },
+        dbpass   => { default => "tiger", },
+    },
+);
+
 use Test::More qw(no_plan);
 use lib "../App-Context/lib";
 use lib "../../App-Context/lib";
@@ -15,12 +27,12 @@ my $context = App->context(
     conf => {
         Repository => {
             default => {
-                class => "App::Repository::MySQL",
-                dbidriver => "mysql",
-                dbhost => "frento",
-                dbname => "test",
-                dbuser => "dbuser",
-                dbpass => "dbuser7",
+                class => $App::options{dbclass},
+                dbdriver => $App::options{dbdriver},
+                dbhost => $App::options{dbhost},
+                dbname => $App::options{dbname},
+                dbuser => $App::options{dbuser},
+                dbpass => $App::options{dbpass},
                 table => {
                     test_person => {
                         primary_key => ["person_id"],
@@ -134,6 +146,28 @@ my ($row, $nrows);
     is($obj->{age},         5, "get_object() 3 values w/ %crit (checking 1 of 3)");
     is($obj->{state},    "CA", "get_object() 3 values w/ %crit (checking 2 of 3)");
     is($obj->{person_id},   4, "get_object() 3 values w/ %crit (checking 3 of 3)");
+}
+
+{
+    my $obj = $rep->get_object("test_person", 1);
+    is($obj->{_key}, 1, "get_object() by key");
+    my $retval = $obj->delete();
+    ok($retval, "delete() seems to have worked");
+    my $obj2 = $rep->get_object("test_person", 1);
+    ok(! defined $obj2, "delete() yep, it's really gone");
+    $obj2 = $rep->new_object("test_person", $obj);
+    is($obj2->{first_name},$obj->{first_name}, "new.first_name seems ok");
+    is($obj2->{age},$obj->{age}, "new.age seems ok");
+    is($obj2->{_key},$obj->{_key}, "new._key seems ok");
+    my $obj3 = $rep->get_object("test_person", 1);
+    ok(defined $obj2, "new() it's back");
+    is($obj3->{first_name},$obj->{first_name}, "new.first_name seems ok");
+    is($obj3->{age},$obj->{age}, "new.age seems ok");
+    is($obj3->{_key},$obj->{_key}, "new._key seems ok");
+    my $obj4 = $rep->new_object("test_person",{first_name => "christine"});
+    is($obj4->{first_name},"christine", "new.first_name (2) seems ok");
+    is($obj4->{_key},8, "new._key is ok");
+    is($obj4->{person_id},8, "new.person_id is ok");
 }
 
 {

@@ -1,6 +1,6 @@
 
 #############################################################################
-## $Id: RepositoryObject.pm,v 1.3 2004/10/12 14:09:09 spadkins Exp $
+## $Id: RepositoryObject.pm,v 1.4 2005/08/09 18:54:33 spadkins Exp $
 #############################################################################
 
 package App::RepositoryObject;
@@ -144,6 +144,34 @@ sub set {
         }
     }
     die "can't set($attrib, $value) on object[$self->{_table}.$self->{_key}]" if (!$nrows);
+    return($nrows);
+}
+
+#############################################################################
+# delete()
+#############################################################################
+
+=head2 delete()
+
+    * Signature: $obj->delete();
+    * Signature: $obj->delete($options);
+    * Param:     $options        ARRAY
+    * Throws:    App::Exception
+    * Since:     0.01
+
+    Sample Usage: 
+
+    $obj->delete();
+
+Deletes the object out of the repository.
+
+=cut
+
+sub delete {
+    my ($self, $options) = @_;
+    die "Can't delete values: _key not defined on object[$self->{_table}]" if (! defined $self->{_key});
+    my $nrows = $self->{_repository}->delete($self->{_table}, $self->{_key}, undef, undef, $options);
+    die "Can't delete() on object[$self->{_table}.$self->{_key}]" if (!$nrows);
     return($nrows);
 }
 

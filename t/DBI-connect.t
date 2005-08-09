@@ -1,5 +1,17 @@
 #!/usr/local/bin/perl -w
 
+use App::Options (
+    options => [qw(dbdriver dbclass dbhost dbname dbuser dbpass)],
+    option => {
+        dbclass  => { default => "App::Repository::MySQL", },
+        dbdriver => { default => "mysql", },
+        dbhost   => { default => "localhost", },
+        dbname   => { default => "test", },
+        dbuser   => { default => "scott", },
+        dbpass   => { default => "tiger", },
+    },
+);
+
 use Test::More qw(no_plan);
 use lib "../App-Context/lib";
 use lib "../../App-Context/lib";
@@ -14,16 +26,12 @@ use strict;
 
 {
     my $context = App->context(
+        %App::options,
         conf_file => "",
         conf => {
             Repository => {
                 default => {
-                    class => "App::Repository::MySQL",
-                    dbidriver => "mysql",
-                    dbhost => "frento",
-                    dbname => "test",
-                    dbuser => "dbuser",
-                    dbpass => "dbuser7",
+                    class => $App::options{dbclass},
                 },
             },
         },

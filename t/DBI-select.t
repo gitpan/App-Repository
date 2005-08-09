@@ -1,5 +1,17 @@
 #!/usr/local/bin/perl -w
 
+use App::Options (
+    options => [qw(dbdriver dbclass dbhost dbname dbuser dbpass)],
+    option => {
+        dbclass  => { default => "App::Repository::MySQL", },
+        dbdriver => { default => "mysql", },
+        dbhost   => { default => "localhost", },
+        dbname   => { default => "test", },
+        dbuser   => { default => "scott", },
+        dbpass   => { default => "tiger", },
+    },
+);
+
 use Test::More qw(no_plan);
 use lib "../App-Context/lib";
 use lib "../../App-Context/lib";
@@ -15,12 +27,12 @@ my $context = App->context(
     conf => {
         Repository => {
             default => {
-                class => "App::Repository::MySQL",
-                dbidriver => "mysql",
-                dbhost => "frento",
-                dbname => "test",
-                dbuser => "dbuser",
-                dbpass => "dbuser7",
+                class => $App::options{dbclass},
+                dbdriver => $App::options{dbdriver},
+                dbhost => $App::options{dbhost},
+                dbname => $App::options{dbname},
+                dbuser => $App::options{dbuser},
+                dbpass => $App::options{dbpass},
                 table => {
                     test_person => {
                         primary_key => ["person_id"],
@@ -75,13 +87,20 @@ my $rows = [
 #ok(!$@, "set_rows() [test_person]");
 
 sub check_select {
-    my ($sql, $expected_rows) = @_;
+    my ($sql, $expected_rows, $debug) = @_;
 
     my ($rows, $reprows);
     eval {
         $rows = $dbh->selectall_arrayref($sql);
     };
     is($@,"","sql ok");
+    if ($debug) {
+        print $sql;
+        print "ROWS [", ($#$rows + 1), "]\n";
+        foreach my $row (@$rows) {
+            print "ROW [", join("|", @$row), "]\n";
+        }
+    }
 
     if (defined $expected_rows) {
         is(($#$rows + 1), $expected_rows, "num rows $expected_rows");
@@ -460,6 +479,120 @@ $sql = $rep->_mk_select_sql("test_person",
                             {"age.verbatim" => "age in (14,15,16,17,18)"},
                             ["first_name","last_name","city","state","age"]);
 is($sql, $expect_sql, "_mk_select_sql(): verbatim");
+&check_select($sql,0);
+
+$expect_sql = <<EOF;
+select
+   first_name,
+   last_name
+from test_person
+where (age in (14,15,16) or age is null)
+EOF
+$sql = $rep->_mk_select_sql("test_person",
+                            {"age" => "14,15,16,NULL"},
+                            ["first_name","last_name"]);
+is($sql, $expect_sql, "_mk_select_sql(): ,NULL");
+&check_select($sql,0);
+
+$expect_sql = <<EOF;
+select
+   first_name,
+   last_name
+from test_person
+where (age in (14,15,16) or age is null)
+EOF
+$sql = $rep->_mk_select_sql("test_person",
+                            {"age" => "NULL,14,15,16"},
+                            ["first_name","last_name"]);
+is($sql, $expect_sql, "_mk_select_sql(): NULL,");
+&check_select($sql,0);
+
+$expect_sql = <<EOF;
+select
+   first_name,
+   last_name
+from test_person
+where (age in (14,15,16) or age is null)
+EOF
+$sql = $rep->_mk_select_sql("test_person",
+                            {"age" => "14,15,NULL,16"},
+                            ["first_name","last_name"]);
+is($sql, $expect_sql, "_mk_select_sql(): ,NULL,");
+&check_select($sql,0);
+
+$expect_sql = <<EOF;
+select
+   first_name,
+   last_name
+from test_person
+where age is null
+EOF
+$sql = $rep->_mk_select_sql("test_person",
+                            {"age" => "NULL"},
+                            ["first_name","last_name"]);
+is($sql, $expect_sql, "_mk_select_sql(): NULL");
+&check_select($sql,0);
+
+$expect_sql = <<EOF;
+select
+   first_name,
+   last_name
+from test_person
+where age is null
+EOF
+$sql = $rep->_mk_select_sql("test_person",
+                            {"age" => undef},
+                            ["first_name","last_name"]);
+is($sql, $expect_sql, "_mk_select_sql(): undef (NULL)");
+&check_select($sql,0);
+
+$expect_sql = <<EOF;
+select
+   first_name,
+   last_name
+from test_person
+where first_name = ''
+EOF
+$sql = $rep->_mk_select_sql("test_person",
+                            {"first_name" => ""},
+                            ["first_name","last_name"]);
+is($sql, $expect_sql, "_mk_select_sql(): \"\" (use literal as string)");
+&check_select($sql,0);
+
+$expect_sql = <<EOF;
+select
+   first_name,
+   last_name
+from test_person
+EOF
+$sql = $rep->_mk_select_sql("test_person",
+                            {"age" => ""},
+                            ["first_name","last_name"]);
+is($sql, $expect_sql, "_mk_select_sql(): \"\" (ALL)");
+&check_select($sql,0);
+
+$expect_sql = <<EOF;
+select
+   first_name,
+   last_name
+from test_person
+EOF
+$sql = $rep->_mk_select_sql("test_person",
+                            {"age" => "ALL"},
+                            ["first_name","last_name"]);
+is($sql, $expect_sql, "_mk_select_sql(): explicit ALL");
+&check_select($sql,0);
+
+$expect_sql = <<EOF;
+select distinct
+   gender
+from test_person
+EOF
+$sql = $rep->_mk_select_sql("test_person",
+                            {},
+                            ["gender"],
+                            {distinct => 1});
+is($sql, $expect_sql, "_mk_select_sql(): distinct");
 &check_select($sql,0);
 
 ###########################################################################
