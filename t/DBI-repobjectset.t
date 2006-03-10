@@ -7,8 +7,8 @@ use App::Options (
         dbdriver => { default => "mysql", },
         dbhost   => { default => "localhost", },
         dbname   => { default => "test", },
-        dbuser   => { default => "scott", },
-        dbpass   => { default => "tiger", },
+        dbuser   => { default => "", },
+        dbpass   => { default => "", },
     },
 );
 
@@ -21,6 +21,11 @@ use lib "../lib";
 use App;
 use App::Repository;
 use strict;
+
+if (!$App::options{dbuser}) {
+    ok(1, "No dbuser given. Tests assumed OK. (add dbuser=xxx and dbpass=yyy to app.conf in 't' directory)");
+    exit(0);
+}
 
 my $context = App->context(
     conf_file => "",
@@ -44,7 +49,7 @@ my $context = App->context(
             adults => {
                 class => "App::SessionObject::RepositoryObjectSet",
                 #repository => "default",
-                #table => "test_person",
+                table => "test_person",
                 #params => {
                 #    "age.ge" => 18,
                 #},
@@ -115,11 +120,11 @@ my ($row, $nrows);
     my $objset = $context->session_object("adults");
     ok(1, "looks good");
     my ($objects, $index);
-    eval {
-        $objects = $objset->get_objects();
-    };
-    ok($@ =~ /table not defined/, "table not defined");
-    $objset->set_table("test_person");
+    #eval {
+    #    $objects = $objset->get_objects();
+    #};
+    #ok($@ =~ /table not defined/, "table not defined");
+    #$objset->set_table("test_person");
     $objects = $objset->get_objects();
     ok($#$objects == 6, "got all 7 objects");
     $objset->set_params({ "age.ge" => 18 });
@@ -147,6 +152,21 @@ my ($row, $nrows);
     $objset->get_unique_index(["first_name"]);
     my $object = $objset->get_object("stephen");
     ok($object->{age} == 39, "got stephen object (age 39)");
+
+    # max_age
+    $rep->set("test_person",1,"age",40);
+    $objects = $objset->get_objects();   # NOTE: objects are cached. we miss the update.
+    is($objects->[0]{age}, 39, "max_age: no refresh without max_age");
+    $objects = $objset->get_objects({max_age => 100});  # NOTE: objects are cached. we miss the update.
+    is($objects->[0]{age}, 39, "max_age: no refresh with big max_age");
+    $objects = $objset->get_objects({max_age => 0});  # NOTE: we get the update.
+    is($objects->[0]{age}, 40, "max_age: refresh with small max_age");
+    $rep->set("test_person",1,"age",41);
+    $objset->{max_age} = 0;
+    $objects = $objset->get_objects({max_age => 100});  # NOTE: objects are cached. we miss the update.
+    is($objects->[0]{age}, 40, "max_age: no refresh by overriding small max_age on objset with large max_age");
+    $objects = $objset->get_objects();                # NOTE: we get the update.
+    is($objects->[0]{age}, 41, "max_age: refresh with max_age on objset");
 }
 
 {

@@ -1,13 +1,13 @@
 
 ######################################################################
-## File: $Id: File.pm,v 1.1 2003/06/27 18:39:37 spadkins Exp $
+## File: $Id: File.pm 3284 2003-06-27 18:39:37Z spadkins $
 ######################################################################
 
 use App;
 use App::Repository;
 
 package App::Repository::File;
-$VERSION = do { my @r=(q$Revision: 1.1 $=~/\d+/g); sprintf "%d."."%02d"x$#r,@r};
+$VERSION = do { my @r=(q$Revision: 3284 $=~/\d+/g); sprintf "%d."."%02d"x$#r,@r};
 
 @ISA = ( "App::Repository" );
 

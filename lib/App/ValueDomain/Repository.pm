@@ -1,6 +1,6 @@
 
 #############################################################################
-## $Id: Repository.pm,v 1.3 2005/08/09 18:48:45 spadkins Exp $
+## $Id: Repository.pm 3483 2005-10-12 14:03:04Z spadkins $
 #############################################################################
 
 package App::ValueDomain::Repository;
@@ -128,12 +128,33 @@ sub _load {
         if ($rep && $table && $valuecolumn && $params) {
             my @cols = ( $valuecolumn );
             push(@cols, $labelcolumn) if ($labelcolumn);
-            $rows   = $rep->get_rows($table, \%params, \@cols);
+            my ($options);
+            if ($self->{order_by}) {
+                $options = { order_by => $self->{order_by} };
+            }
+            $rows   = $rep->get_rows($table, \%params, \@cols, $options);
             $values = [];
             $labels = {};
             foreach $row (@$rows) {
                 push(@$values, $row->[0]);
                 $labels->{$row->[0]} = $row->[1] if ($labelcolumn);
+            }
+            if ($self->{extra_values}) {
+                my @each = @$values;
+                my $extra_values = $self->{extra_values};
+                my $extra_labels = $self->{extra_labels} || {};
+                for (my $i = $#$extra_values; $i >= 0; $i--) {
+                    if ($extra_values->[$i] eq "EACH") {
+                        $key = join(",", @each) || -99999;
+                        unshift(@$values, $key);
+                        $labels->{$key} = $extra_labels->{EACH};
+                    }
+                    else {
+                        $key = $extra_values->[$i];
+                        unshift(@$values, $key);
+                        $labels->{$key} = $extra_labels->{$key};
+                    }
+                }
             }
             $self->{values} = $values;
             $self->{labels} = $labels if ($labelcolumn);

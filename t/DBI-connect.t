@@ -7,8 +7,8 @@ use App::Options (
         dbdriver => { default => "mysql", },
         dbhost   => { default => "localhost", },
         dbname   => { default => "test", },
-        dbuser   => { default => "scott", },
-        dbpass   => { default => "tiger", },
+        dbuser   => { default => "", },
+        dbpass   => { default => "", },
     },
 );
 
@@ -21,6 +21,11 @@ use lib "../lib";
 use_ok("App");
 use_ok("App::Repository");
 use strict;
+
+if (!$App::options{dbuser}) {
+    ok(1, "No dbuser given. Tests assumed OK. (add dbuser=xxx and dbpass=yyy to app.conf in 't' directory)");
+    exit(0);
+}
 
 #$App::DEBUG = 6;
 
@@ -64,11 +69,11 @@ use_ok("App::Repository::MySQL");
     #$App::aspect = 1;
     # get a repository (no need for config file)
     my $rep = App::Repository::MySQL->new("test2",
-        dbidriver => "mysql",
-        dbhost => "frento",
-        dbname => "test",
-        dbuser => "dbuser",
-        dbpass => "dbuser7",
+        dbdriver => $App::options{dbdriver},
+        dbhost => $App::options{dbhost},
+        dbname => $App::options{dbname},
+        dbuser => $App::options{dbuser},
+        dbpass => $App::options{dbpass},
     );
     ok(defined $rep, "constructor ok");
     isa_ok($rep, "App::Repository::DBI", "right class");

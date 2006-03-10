@@ -1,6 +1,6 @@
 
 #############################################################################
-## $Id: RepositoryObjectDomain.pm,v 1.4 2005/08/09 18:46:22 spadkins Exp $
+## $Id: RepositoryObjectDomain.pm 3472 2005-09-16 14:46:05Z spadkins $
 #############################################################################
 
 package App::SessionObject::RepositoryObjectDomain;
@@ -47,7 +47,7 @@ sub _clear_cache {
         @tables = ($table);
     }
     else {
-        my $object_set = $self->{object_set};
+        my $object_set = $self->{table};
         if (ref($object_set) eq "HASH") {
             foreach my $table (keys %$object_set) {
                 if ($object_set->{$table}{gotten}) {
@@ -60,7 +60,7 @@ sub _clear_cache {
     my $context = $self->{context};
     my ($object_set_name, $object_set);
     foreach my $table (@tables) {
-        $object_set_name = $self->{object_set}{$table}{name} || "$self->{name}-$table";
+        $object_set_name = $self->{table}{$table}{name} || "$self->{name}-$table";
         $object_set = $context->session_object($object_set_name);
         $object_set->_clear_cache();
     }
@@ -79,23 +79,42 @@ sub get_object_set {
     &App::sub_entry if ($App::trace);
     my ($self, $table) = @_;
     my $context = $self->{context};
-    my $params = $self->{params} || {};
+    my $domain_params = $self->{params} || {};
 
-    my $object_set_name = $self->{object_set}{$table}{name} || "$self->{name}-$table";
-    my $args = $self->{object_set}{$table}{args} || {};
-    if (!$args->{class}) {
-        $args->{class} = "App::SessionObject::RepositoryObjectSet";
+    my $tabledef = $self->{table}{$table};
+    if (!$tabledef) {
+        $tabledef = {};
+        $self->{table}{$table} = $tabledef;
     }
-    if (!$args->{table}) {
-        $args->{table} = $table;
-    }
-    if (!$args->{params}) {
-        $args->{params} = $params;
-    }
-    my $object_set = $context->session_object($object_set_name, %$args);
-    $self->{object_set}{$table}{gotten} = 1;
 
-    $object_set->update_params($params);
+    my $object_set_name = $tabledef->{name} || "$self->{name}-$table";
+    my $new_args = $tabledef->{new_args} || {};
+    if (!$new_args->{class}) {
+        $new_args->{class} = "App::SessionObject::RepositoryObjectSet";
+    }
+    if (!$new_args->{table}) {
+        $new_args->{table} = $tabledef->{table} || $table;
+    }
+    if (!$new_args->{params}) {
+        my $new_params = $tabledef->{params} || $domain_params || {};
+        $new_args->{params} = { %$new_params };
+    }
+    my $object_set = $context->session_object($object_set_name, %$new_args);
+    $tabledef->{gotten} = 1;
+
+    if ($tabledef->{params}) {
+        my (%object_set_param_values, $domain_param);
+        my $corresponding_domain_param = $tabledef->{params};
+        foreach my $set_param (keys %$corresponding_domain_param) {
+            $domain_param = $corresponding_domain_param->{$set_param};
+            $domain_param = $set_param if ($domain_param eq "1");
+            $object_set_param_values{$set_param} = $domain_params->{$domain_param};
+        }
+        $object_set->update_params(\%object_set_param_values);
+    }
+    else {
+        $object_set->update_params($domain_params);
+    }
     &App::sub_exit($object_set) if ($App::trace);
     return($object_set);
 }

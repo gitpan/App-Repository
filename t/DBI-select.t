@@ -7,8 +7,8 @@ use App::Options (
         dbdriver => { default => "mysql", },
         dbhost   => { default => "localhost", },
         dbname   => { default => "test", },
-        dbuser   => { default => "scott", },
-        dbpass   => { default => "tiger", },
+        dbuser   => { default => "", },
+        dbpass   => { default => "", },
     },
 );
 
@@ -21,6 +21,11 @@ use lib "../lib";
 use App;
 use App::Repository;
 use strict;
+
+if (!$App::options{dbuser}) {
+    ok(1, "No dbuser given. Tests assumed OK. (add dbuser=xxx and dbpass=yyy to app.conf in 't' directory)");
+    exit(0);
+}
 
 my $context = App->context(
     conf_file => "",
@@ -36,6 +41,11 @@ my $context = App->context(
                 table => {
                     test_person => {
                         primary_key => ["person_id"],
+                        column => {
+                            gender => {
+                                alias => "gnd",
+                            },
+                        },
                     },
                 },
             },
@@ -265,14 +275,14 @@ $expect_sql = <<EOF;
 select
    first_name
 from test_person
-where first_name in ('stephen','paul')
+where first_name = 'stephen,paul'
   and age in (37,39)
-  and birth_dt in ('1962-01-01','1963-12-31')
+  and birth_dt = '1962-01-01,1963-12-31'
 EOF
 $sql = $rep->_mk_select_sql("test_person",{
-        "_order" => [ "first_name.eq", "age.eq", "birth_dt.eq", ],
+        "_order" => [ "first_name.eq", "age", "birth_dt.eq", ],
         "first_name.eq" => "stephen,paul",
-        "age.eq" => "37,39",
+        "age" => "37,39",
         "birth_dt.eq" => "1962-01-01,1963-12-31",
     },["first_name"]);
 is($sql, $expect_sql, "_mk_select_sql(): param.eq => in");
@@ -594,6 +604,39 @@ $sql = $rep->_mk_select_sql("test_person",
                             {distinct => 1});
 is($sql, $expect_sql, "_mk_select_sql(): distinct");
 &check_select($sql,0);
+
+###########################################################################
+# LITERAL EXPRESSIONS
+###########################################################################
+
+$expect_sql = <<EOF;
+select
+   t1.gender gnd,
+   max(age) max_age_
+from
+   test_person t1
+group by
+   gnd
+order by
+   gnd
+EOF
+&test_get_rows($expect_sql, 0, "_mk_select_joined_sql(): literal aggregation function",
+    "test_person",
+    {},
+    ["gender","max(age)"],
+    { group_by => ["gender"], order_by => ["gender"] });
+
+$expect_sql = <<EOF;
+select
+   t1.gender gnd,
+   2*age _2_age
+from
+   test_person t1
+EOF
+&test_get_rows($expect_sql, 0, "_mk_select_joined_sql(): literal aggregation function",
+    "test_person",
+    {},
+    ["gender","2*age"]);
 
 ###########################################################################
 # EXCEPTIONS

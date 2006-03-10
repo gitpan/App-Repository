@@ -7,8 +7,8 @@ use App::Options (
         dbdriver => { default => "mysql", },
         dbhost   => { default => "localhost", },
         dbname   => { default => "test", },
-        dbuser   => { default => "scott", },
-        dbpass   => { default => "tiger", },
+        dbuser   => { default => "", },
+        dbpass   => { default => "", },
     },
 );
 
@@ -21,6 +21,11 @@ use lib "../lib";
 use App;
 use App::Repository;
 use strict;
+
+if (!$App::options{dbuser}) {
+    ok(1, "No dbuser given. Tests assumed OK. (add dbuser=xxx and dbpass=yyy to app.conf in 't' directory)");
+    exit(0);
+}
 
 my $context = App->context(
   conf_file => "",

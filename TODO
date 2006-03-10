@@ -1,38 +1,44 @@
 ######################################################################
-## File: $Id: TODO,v 1.5 2005/08/09 18:58:14 spadkins Exp $
+## File: $Id: TODO 3559 2006-03-01 03:36:15Z spadkins $
 ######################################################################
 
 To get to Version 1.0
- o change the test suites to be driven by App::Options (dbdriver/dbhost/dbname/dbuser/dbpass)
+ o clean up join configuration (i.e. relationships)
+ o { related_from => "source_table" } option
  o implement App::Repository::File and App::Repository::FileSystem
  o go over the documentation which is terrible and has been completely neglected
+ o ensure it runs (and tests cleanly!) on MSWin32
+ o get it to run against Oracle
 
 Other stuff
+ o get it to run against Oracle
  o caching rows by key
  o caching row-sets by set-key
- o DBI   - refactored/unified params/cols/values handling
-           - arbitrarily complex where clauses
-           - clear separation between "eq", "in" and implied ops
- o DBI   - auto-reconnect on all operations
- o DBI   - bind variables on all operations
- o all   - benchmarks
- o Remote- make a remote repository work
- o all   - get related rows (relationships)
- o all   - $rep->set_rows(...) - make work with %$params
+ o DBI    - refactored/unified params/cols/values handling
+            - arbitrarily complex where clauses
+            - clear separation between "eq", "in" and implied ops
+            - add "not_in" operator
+            - add implied operators from the value (i.e. ">3", "!2,3")
+ o auto-history (audit trail)
 
- o MySQL - Shared connections between repositories
+ o DBI    - auto-reconnect on all operations
+ o DBI    - bind variables on all operations
+ o all    - benchmarks
+ o Remote - make a remote repository work
+ o all    - get related rows (relationships)
+ o all    - $rep->set_rows(...) - make work with %$params
+
+ o MySQL  - Shared connections between repositories
  o File
- o all   - $rep->purge(...)
- o MySQL - $rep->purge(...)
+ o all    - $rep->purge(...)
+ o MySQL  - $rep->purge(...)
 
- o all   - $rep->maintain(...)
- o all   - summaries
- o all   - partitions
- o all   - defaults
- o all   - required cols
- o all   - Read-only
- o all   - read/write permissions
- o all   - ID generation
- o DBI   - ID generation
- o DBI   - "statement" cache, allows prepare/execute optimization
+ o all    - $rep->maintain(...)
+ o all    - summaries
+ o all    - partitions
+ o all    - Read-only
+ o all    - read/write permissions
+ o all    - ID generation
+ o DBI    - ID generation
+ o DBI    - "statement" cache, allows prepare/execute optimization
 

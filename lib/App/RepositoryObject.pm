@@ -1,6 +1,6 @@
 
 #############################################################################
-## $Id: RepositoryObject.pm,v 1.4 2005/08/09 18:54:33 spadkins Exp $
+## $Id: RepositoryObject.pm 3469 2005-08-10 18:32:39Z spadkins $
 #############################################################################
 
 package App::RepositoryObject;
@@ -173,6 +173,40 @@ sub delete {
     my $nrows = $self->{_repository}->delete($self->{_table}, $self->{_key}, undef, undef, $options);
     die "Can't delete() on object[$self->{_table}.$self->{_key}]" if (!$nrows);
     return($nrows);
+}
+
+#############################################################################
+# PRIVATE METHODS
+#############################################################################
+
+=head1 Private Methods
+
+=cut
+
+#############################################################################
+# _init()
+#############################################################################
+
+=head2 _init()
+
+    * Signature: $obj->_init();
+    * Param:     void
+    * Return:    void
+    * Throws:    App::Exception
+    * Since:     0.01
+
+    Sample Usage: 
+
+    $obj->_init();
+
+This method initializes the values of a newly created object.
+The default implementation on the App::RepositoryObject base class does nothing.
+It is provided so that it may be overridden in a subclass if desired.
+
+=cut
+
+sub _init {
+    my ($self) = @_;
 }
 
 =head1 ACKNOWLEDGEMENTS

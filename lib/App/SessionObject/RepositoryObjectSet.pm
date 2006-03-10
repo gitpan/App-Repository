@@ -1,6 +1,6 @@
 
 #############################################################################
-## $Id: RepositoryObjectSet.pm,v 1.5 2005/03/31 20:04:01 spadkins Exp $
+## $Id: RepositoryObjectSet.pm 3543 2006-02-24 14:33:11Z spadkins $
 #############################################################################
 
 package App::SessionObject::RepositoryObjectSet;
@@ -46,6 +46,22 @@ a variety of benefits.
 # Support Routines
 ###########################################################################
 
+sub _init {
+    &App::sub_entry if ($App::trace);
+    my ($self, $args) = @_;
+    $self->SUPER::_init();
+    my $table   = $self->{table} || die "table not defined";
+    $self->_clear_cache_if_auto_params_changed() if ($self->{auto_params});   # sets params from auto_params
+    $self->_clear_cache_if_auto_columns_changed() if ($self->{auto_columns}); # sets columns from auto_columns
+    if (!$self->{columns}) {
+        my $context = $self->{context};
+        my $repname = $self->{repository};
+        my $rep     = $context->repository($repname);
+        $self->{columns} = $rep->_get_default_columns($table);
+    }
+    &App::sub_exit() if ($App::trace);
+}
+
 sub _clear_cache {
     &App::sub_entry if ($App::trace);
     my ($self) = @_;
@@ -60,8 +76,9 @@ sub _clear_cache {
 sub _clear_cache_if_objects_expired {
     &App::sub_entry if ($App::trace);
     my ($self, $options) = @_;
-    if (defined $options->{max_age} && $self->{objects}) {
-        my $max_age = $options->{max_age};
+    my $max_age = $options->{max_age};
+    $max_age = $self->{max_age} if (!defined $max_age);
+    if (defined $max_age && $self->{objects}) {
         my $max_age_time = $self->{max_age_time};
         my $time = time();
         if (defined $max_age_time && $max_age_time <= $time - $max_age) {
@@ -71,14 +88,62 @@ sub _clear_cache_if_objects_expired {
     &App::sub_exit() if ($App::trace);
 }
 
-sub set_table {
+sub _clear_cache_if_auto_params_changed {
     &App::sub_entry if ($App::trace);
-    my ($self, $table, $repository) = @_;
-    $self->{repository} = $repository || "default";
-    $self->{table} = $table;
-    $self->_clear_cache();
+    my ($self, $options) = @_;
+    if (defined $self->{auto_params}) {
+        my $newparams = $self->substitute($self->{auto_params});
+        if (!$self->{params}) {
+            $self->{params} = $newparams;
+        }
+        else {
+            my $changed = 0;
+            my $params = $self->{params};
+            foreach my $var (keys %$newparams) {
+                if ($params->{$var} ne $newparams->{$var}) {
+                    $changed = 1;
+                    last;
+                }
+            }
+            if ($changed) {
+                $self->{params} = $newparams;
+                $self->_clear_cache();
+            }
+        }
+    }
     &App::sub_exit() if ($App::trace);
 }
+
+sub _clear_cache_if_auto_columns_changed {
+    &App::sub_entry if ($App::trace);
+    my ($self, $options) = @_;
+    if (defined $self->{auto_columns}) {
+        my (@auto_columns, %column, $new_columns);
+        my $context = $self->{context};
+        foreach my $wname (split(/,/, $self->{auto_columns})) {
+            $new_columns = $context->so_get($wname);
+            if ($new_columns) {
+                push(@auto_columns, split(/,/, $new_columns));
+            }
+        }
+        if (!$self->{columns}) {
+            $self->{columns} = \@auto_columns;
+            $self->_clear_cache();
+        }
+    }
+    &App::sub_exit() if ($App::trace);
+}
+
+# The RepositoryObjectSet should know its table at construction time.
+# It should never allow the table to be set afterwards.
+#sub set_table {
+#    &App::sub_entry if ($App::trace);
+#    my ($self, $table, $repository) = @_;
+#    $self->{repository} = $repository || "default";
+#    $self->{table} = $table;
+#    $self->_clear_cache();
+#    &App::sub_exit() if ($App::trace);
+#}
 
 sub set_params {
     &App::sub_entry if ($App::trace);
@@ -118,12 +183,83 @@ sub _get_all_objects {
         my $rep     = $context->repository($repname);
         my $table   = $self->{table} || die "table not defined";
         my $params  = $self->{params} || {};
-        $objects = $rep->get_objects($table, $params);
+        my $columns = $self->{columns};
+        $objects = $rep->get_objects($table, $params, $columns);
         $self->{objects} = $objects;
         $self->{max_age_time} = time();
     }
     &App::sub_exit($objects) if ($App::trace);
     return($objects);
+}
+
+###########################################################################
+# Column Control
+###########################################################################
+
+sub set_columns {
+    my ($self, $new_columns) = @_;
+    $self->{columns} = $new_columns;
+    $self->_clear_cache();
+}
+
+sub include_columns {
+    my ($self, $new_columns) = @_;
+    my $columns = $self->{columns};
+    if (!$columns) {
+        my $repname = $self->{repository};
+        my $context = $self->{context};
+        my $rep = $context->repository($repname);
+        my $table = $self->{table} || die "table not defined on object_set [$self->{name}]";
+        $columns = $rep->_get_default_columns($table);
+        $self->{columns} = $columns;
+    }
+    my (%colidx, $column_added, $column);
+    for (my $i = 0; $i <= $#$columns; $i++) {
+        $colidx{$columns->[$i]} = $i;
+    }
+    for (my $i = 0; $i <= $#$new_columns; $i++) {
+        $column = $new_columns->[$i];
+        if (! defined $colidx{$column}) {
+            push(@$columns, $column);
+            $colidx{$column} = $#$columns;
+            $column_added = 1;
+        }
+    }
+    if ($column_added) {
+        $self->_clear_cache();
+    }
+}
+
+sub get_key_columns {
+    my ($self) = @_;
+    my $repname = $self->{repository};
+    my $context = $self->{context};
+    my $rep     = $context->repository($repname);
+    my $table   = $self->{table} || die "table not defined";
+    my $column_defs = $rep->{table}{$table}{column};
+    my $columns = $self->{columns};
+    if (!$columns) {
+        $columns = $rep->_get_default_columns($table);
+        $self->{columns} = $columns;
+    }
+    my (@key_columns, $column);
+    for (my $i = 0; $i <= $#$columns; $i++) {
+        $column = $columns->[$i];
+        if ($column_defs->{$column}{is_key}) {
+            push(@key_columns, $column);
+        }
+    }
+    return(\@key_columns);
+}
+
+sub get_column_defs {
+    my ($self) = @_;
+    my $context     = $self->{context};
+    my $repname     = $self->{repository};
+    my $rep         = $context->repository($repname);
+    my $table       = $self->{table} || die "table not defined";
+    my $column_defs = $rep->{table}{$table}{column};
+    return($column_defs);
 }
 
 ###########################################################################
@@ -138,7 +274,8 @@ sub get_index {
     $key_name ||= "ie1";
     my $key_columns = shift;
 
-    $self->_clear_cache_if_objects_expired($options) if (defined $options->{max_age} && $self->{objects});
+    $self->_clear_cache_if_auto_params_changed($options) if (defined $self->{auto_params});
+    $self->_clear_cache_if_objects_expired($options) if ((defined $options->{max_age} || defined $self->{max_age}) && $self->{objects});
 
     my $index = $self->{index}{$key_name};
     if (!$index) {
@@ -175,7 +312,8 @@ sub get_unique_index {
     $key_name ||= "ak1";
     my $key_columns = shift;
 
-    $self->_clear_cache_if_objects_expired($options) if (defined $options->{max_age} && $self->{objects});
+    $self->_clear_cache_if_auto_params_changed($options) if (defined $self->{auto_params});
+    $self->_clear_cache_if_objects_expired($options) if ((defined $options->{max_age} || defined $self->{max_age}) && $self->{objects});
 
     my $unique_index = $self->{unique_index}{$key_name};
     if (!$unique_index) {
@@ -200,7 +338,8 @@ sub get_column_values {
     &App::sub_entry if ($App::trace);
     my ($self, $column, $options) = @_;
 
-    $self->_clear_cache_if_objects_expired($options) if (defined $options->{max_age} && $self->{objects});
+    $self->_clear_cache_if_auto_params_changed($options) if (defined $self->{auto_params});
+    $self->_clear_cache_if_objects_expired($options) if ((defined $options->{max_age} || defined $self->{max_age}) && $self->{objects});
 
     my $values = $self->{column_values}{$column};
     if (!$values) {
@@ -235,7 +374,8 @@ sub get_object {
     my $key_name = ref($_[0]) ? "ak1" : shift;
     my $key_columns = shift;
 
-    $self->_clear_cache_if_objects_expired($options) if (defined $options->{max_age} && $self->{objects});
+    $self->_clear_cache_if_auto_params_changed($options) if (defined $self->{auto_params});
+    $self->_clear_cache_if_objects_expired($options) if ((defined $options->{max_age} || defined $self->{max_age}) && $self->{objects});
 
     my $unique_index = $self->get_unique_index($key_name, $key_columns);
     my $object = $unique_index->{$key};
@@ -256,7 +396,8 @@ sub get_objects {
     my $key_name = ref($_[0]) ? "ie1" : shift;
     my $key_columns = shift;
 
-    $self->_clear_cache_if_objects_expired($options) if (defined $options->{max_age} && $self->{objects});
+    $self->_clear_cache_if_auto_params_changed($options) if (defined $self->{auto_params});
+    $self->_clear_cache_if_objects_expired($options) if ((defined $options->{max_age} || defined $self->{max_age}) && $self->{objects});
 
     my ($objects);
     if ($key) {

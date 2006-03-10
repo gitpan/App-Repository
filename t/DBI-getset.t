@@ -7,8 +7,8 @@ use App::Options (
         dbdriver => { default => "mysql", },
         dbhost   => { default => "localhost", },
         dbname   => { default => "test", },
-        dbuser   => { default => "scott", },
-        dbpass   => { default => "tiger", },
+        dbuser   => { default => "", },
+        dbpass   => { default => "", },
     },
 );
 
@@ -21,6 +21,11 @@ use lib "../lib";
 use App;
 use App::Repository;
 use strict;
+
+if (!$App::options{dbuser}) {
+    ok(1, "No dbuser given. Tests assumed OK. (add dbuser=xxx and dbpass=yyy to app.conf in 't' directory)");
+    exit(0);
+}
 
 my $context = App->context(
     conf_file => "",
@@ -41,7 +46,7 @@ my $context = App->context(
             },
         },
     },
-    #debug_sql => 1,
+    debug_sql => $App::options{debug_sql},
 );
 
 my $rep = $context->repository();
@@ -137,14 +142,6 @@ is($state,    "GA", "get_row() 3 values w/ %crit (checking 2 of 3)");
 is($person_id,   4, "get_row() 3 values w/ %crit (checking 3 of 3)");
 
 my ($hashes, $hash);
-ok($rep->set("test_person", {person_id => 1, age => 40}), "set(table,%hash)");
-$hash = $rep->get_hash("test_person");
-is($hash->{person_id},  1,         "get_hash() person_id");
-is($hash->{age},        40,        "get_hash() age");
-is($hash->{first_name}, "steve",   "get_hash() first_name");
-is($hash->{gender},     "M",       "get_hash() gender");
-is($hash->{state},      "GA",      "get_hash() state");
-
 ok($rep->set("test_person", 1, {person_id => 1, age => 41}), "set(table,\$key,\%hash)");
 $hash = $rep->get_hash("test_person", 1);
 is($hash->{person_id},  1,         "get_hash(1) person_id");
@@ -160,6 +157,12 @@ ok($rep->set("test_person", {person_id => 8, age => 37, first_name => "nick", ge
 is($rep->set("test_person", {gender => "F", age => 41}), 0,
     "set(table,\$params,\%hash) : fails if key not supplied");
 $hashes = $rep->get_hashes("test_person");
+is($#$hashes, 7, "get_hashes(test_person) returned 8 rows");
+$hashes = $rep->get_hashes("test_person",{},undef,{order_by=>["person_id"]});
+is($#$hashes, 7, "get_hashes(test_person,{},undef,{order_by}) returned 8 rows");
+#foreach $hash (@$hashes) {
+#    print "HASH: {", join("|", %$hash), "}\n";
+#}
 $hash = $hashes->[0];
 is($hash->{person_id},  1,         "get_hashes()->[0] person_id");
 is($hash->{age},        41,        "get_hashes()->[0] age");
@@ -172,6 +175,12 @@ is($hash->{age},        37,        "get_hashes()->[n] age");
 is($hash->{first_name}, "nick",    "get_hashes()->[n] first_name");
 is($hash->{gender},     "M",       "get_hashes()->[n] gender");
 is($hash->{state},      "NY",      "get_hashes()->[n] state");
+
+eval {
+    $nrows = $rep->set("test_person", undef, "gender", "M");
+    print "updated $nrows rows. ?!? shouldn't ever get here!\n";
+};
+ok($@, "set() with undef params");
 
 exit(0);
 #####################################################################

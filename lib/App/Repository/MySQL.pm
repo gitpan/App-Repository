@@ -1,12 +1,12 @@
 
 ######################################################################
-## File: $Id: MySQL.pm,v 1.11 2005/08/09 18:55:48 spadkins Exp $
+## File: $Id: MySQL.pm 3522 2005-11-21 20:24:57Z spadkins $
 ######################################################################
 
 use App::Repository::DBI;
 
 package App::Repository::MySQL;
-$VERSION = do { my @r=(q$Revision: 1.11 $=~/\d+/g); sprintf "%d."."%02d"x$#r,@r};
+$VERSION = do { my @r=(q$Revision: 3522 $=~/\d+/g); sprintf "%d."."%02d"x$#r,@r};
 
 @ISA = ( "App::Repository::DBI" );
 
@@ -39,14 +39,33 @@ sub _connect {
     if (!defined $self->{dbh}) {
         my $dsn = $self->_dsn();
         my $attr = $self->_attr();
-        $self->{dbh} = DBI->connect($dsn, $self->{dbuser}, $self->{dbpass}, $attr);
-        $self->{dbh}{mysql_auto_reconnect} = 1;
+
+        while (1) {
+            eval {
+                $self->{dbh} = DBI->connect($dsn, $self->{dbuser}, $self->{dbpass}, $attr);
+                $self->{dbh}{mysql_auto_reconnect} = 1;
+            };
+            if ($@) {
+                delete $self->{dbh};
+                if ($@ =~ /Lost connection/ || $@ =~ /server has gone away/) {
+                    $self->{context}->log("DBI Exception (retrying) in _connect(): $@");
+                    sleep(1);
+                }
+                else {
+                    $self->{context}->log("DBI Exception (fail) in _connect(): $@");
+                    die $@;
+                }
+            }
+            else {
+                last;
+            }
+        }
+        die "Can't connect to database" if (!$self->{dbh});
     }
 
     &App::sub_exit(defined $self->{dbh}) if ($App::trace);
     return(defined $self->{dbh});
 }
-
 sub _dsn {
     &App::sub_entry if ($App::trace);
     my ($self) = @_;

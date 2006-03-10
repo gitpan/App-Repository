@@ -1,13 +1,13 @@
 
 ######################################################################
-## File: $Id: DBI.pm,v 1.27 2005/08/09 18:52:25 spadkins Exp $
+## File: $Id: DBI.pm 3603 2006-03-05 05:13:04Z spadkins $
 ######################################################################
 
 use App;
 use App::Repository;
 
 package App::Repository::DBI;
-$VERSION = do { my @r=(q$Revision: 1.27 $=~/\d+/g); sprintf "%d."."%02d"x$#r,@r};
+$VERSION = do { my @r=(q$Revision: 3603 $=~/\d+/g); sprintf "%d."."%02d"x$#r,@r};
 
 @ISA = ( "App::Repository" );
 
@@ -177,7 +177,26 @@ sub _connect {
     if (!defined $self->{dbh}) {
         my $dsn = $self->_dsn();
         my $attr = $self->_attr();
-        $self->{dbh} = DBI->connect($dsn, $self->{dbuser}, $self->{dbpass}, $attr);
+
+        while (1) {
+            eval {
+                $self->{dbh} = DBI->connect($dsn, $self->{dbuser}, $self->{dbpass}, $attr);
+            };
+            if ($@) {
+                delete $self->{dbh};
+                if ($@ =~ /Lost connection/ || $@ =~ /server has gone away/) {
+                    $self->{context}->log("DBI Exception (retrying) in _connect(): $@");
+                    sleep(1);
+                }
+                else {
+                    $self->{context}->log("DBI Exception (fail) in _connect(): $@");
+                    die $@;
+                }
+            }
+            else {
+                last;
+            }
+        }
         die "Can't connect to database" if (!$self->{dbh});
     }
 
@@ -455,6 +474,23 @@ sub _get_rows {
     return($rows);
 }
 
+sub _get_default_columns {
+    &App::sub_entry if ($App::trace);
+    my ($self, $table) = @_;
+    $self->_load_table_metadata($table) if (!defined $self->{table}{$table}{loaded});
+    my $table_def = $self->{table}{$table};
+    my $columns = $table_def->{default_columns} || $table_def->{columns};
+    if ($columns eq "configured") {
+        $columns = $table_def->{columns};
+    }
+    elsif (!$columns || $columns eq "physical") {
+        $columns = $table_def->{phys_columns};
+    }
+    die "Unknown default columns [$columns]" if (ref($columns) ne "ARRAY");
+    &App::sub_exit($columns) if ($App::trace);
+    return($columns);
+}
+
 # modified from the DBD::_::db::selectall_arrayref in DBI.pm
 sub _selectrange_arrayref {
     &App::sub_entry if ($App::trace);
@@ -605,10 +641,12 @@ sub _mk_where_clause {
                 if ($param =~ /^begin_(.*)/) {
                     $column = $1;
                     $sqlop = ">=";
+                    $inferred_op = 0;
                 }
                 elsif ($param =~ /^end_(.*)/) {
                     $column = $1;
                     $sqlop = "<=";
+                    $inferred_op = 0;
                 }
                 $column_def = $tabcols->{$column};
             }
@@ -664,7 +702,7 @@ sub _mk_where_clause {
                     $value =~ s/\?/_/g;
                     $value = "'$value'";
                 }
-                elsif ($sqlop eq "in" || $sqlop eq "=") {
+                elsif ($sqlop eq "in" || ($inferred_op && $sqlop eq "=")) {
                     if (! defined $value || $value eq "NULL") {
                         $sqlop = "is";
                         $value = "null";
@@ -753,10 +791,10 @@ sub _mk_select_sql {
             else {
                 $dir = "";
                 if ($direction && ref($direction) eq "HASH" && defined $direction->{$col}) {
-                    if ($direction->{$col} =~ /^asc$/i) {
+                    if ($direction->{$col} =~ /^[au]/i) {  # asc, up, etc.
                         $dir = " asc";
                     }
-                    elsif ($direction->{$col} =~ /^desc$/i) {
+                    elsif ($direction->{$col} =~ /^d/i) {
                         $dir = " desc";
                     }
                 }
@@ -797,20 +835,18 @@ sub _mk_select_joined_sql {
         $param_order = [ (keys %$params) ];
     }
 
-    my ($startrow, $endrow, $auto_extend, $keycolidx, $writeref, $reptyperef, $summarykeys);
-    $startrow    = $options->{startrow}    || 0;
-    $endrow      = $options->{endrow}      || 0;
-    $auto_extend = $options->{auto_extend} || 0;
-    $keycolidx   = $options->{keycolidx};
-    $writeref    = $options->{writeref};
-    $reptyperef  = $options->{reptyperef};
-    $summarykeys = $options->{summarykeys};
+    my $startrow    = $options->{startrow}    || 0;
+    my $endrow      = $options->{endrow}      || 0;
+    my $auto_extend = $options->{auto_extend} || 0;
+    my $keycolidx   = $options->{keycolidx};
+    my $writeref    = $options->{writeref};
+    my $reptyperef  = $options->{reptyperef};
+    my $group_by    = $options->{group_by} || $options->{summarykeys};
 
     my ($table_def, $tablealiases, $tablealiashref);
 
     $table_def = $self->{table}{$table};
-    return undef if (!$table_def);
-    $self->_load_table_metadata($table) if (!defined $table_def->{loaded});
+    die "Table $table not defined" if (!$table_def);
 
     $tablealiases   = $table_def->{tablealiases};
     $tablealiashref = $table_def->{tablealias};
@@ -818,7 +854,7 @@ sub _mk_select_joined_sql {
     ############################################################
     # Record indexes of all requested columns
     ############################################################
-    my ($idx, $column, %columnidx, @write, @reptype);
+    my ($idx, $column, %columnidx, $column_def, @write, @reptype);
 
     for ($idx = 0; $idx <= $#$cols; $idx++) {
         $column = $cols->[$idx];
@@ -827,21 +863,32 @@ sub _mk_select_joined_sql {
         }
         $write[$idx] = 1;            # assume every field writable
         $reptype[$idx] = "string";   # assume every field a string (most general type)
+        $column_def = $table_def->{column}{$column};
+        if ((!defined $column_def || !%$column_def) && $column =~ /[^_a-zA-Z0-9]/) {
+            my $alias = $column;
+            $alias =~ s/[^_a-zA-Z0-9.]+/_/g;
+            $alias =~ s/^([0-9])/_$1/;
+            $column_def = {
+                dbexpr => $column,
+                alias => $alias,
+            };
+            $table_def->{column}{$column} = $column_def;
+        }
     }
 
     ############################################################
     # ensure that the primary key and sort keys are included
     ############################################################
-    my ($dbexpr, $columnalias, $columntype, $colidx, $column_def, $quoted);
+    my ($dbexpr, $columnalias, $columntype, $colidx, $quoted);
     my (%dbexpr, @select_phrase, $group_reqd, @group_dbexpr, %reqd_tables);
     my (@keycolidx, $primary_key, $primary_table);
     my ($is_summary, %is_summary_key, $summaryexpr, @group_summarykeys);
 
-    $is_summary = (defined $summarykeys && $#$summarykeys >= 0);
+    $is_summary = (defined $group_by && $#$group_by >= 0);
 
     $primary_table = "";
     if ($is_summary) {
-        foreach $column (@$summarykeys) {         # primary key is list of summary keys
+        foreach $column (@$group_by) {         # primary key is list of summary keys
             $is_summary_key{$column} = 1;
             $colidx = $columnidx{$column};
             if (! defined $colidx && $auto_extend) {
@@ -920,12 +967,17 @@ sub _mk_select_joined_sql {
             else {
                 $summaryexpr = $column_def->{summary};
                 if (!defined $summaryexpr || $summaryexpr eq "") {
-                    $columntype = $column_def->{type};
-                    if ($columntype eq "integer" || $columntype eq "number") {
-                        $summaryexpr = "avg(\$)";
+                    if ($dbexpr && $dbexpr =~ /^(count|sum|avg|min|max)\(/) {
+                        $summaryexpr = $dbexpr;
                     }
                     else {
-                        $summaryexpr = "count(distinct(\$))";
+                        $columntype = $column_def->{type};
+                        if ($columntype eq "integer" || $columntype eq "number") {
+                            $summaryexpr = "avg(\$)";
+                        }
+                        else {
+                            $summaryexpr = "count(distinct(\$))";
+                        }
                     }
                 }
                 if (defined $dbexpr) {
@@ -1029,10 +1081,10 @@ sub _mk_select_joined_sql {
                 }
                 else {
                     if ($direction && ref($direction) eq "HASH" && defined $direction->{$column}) {
-                        if ($direction->{$column} =~ /^asc$/i) {
+                        if ($direction->{$column} =~ /^[au]/i) {
                             $order_by_dbexpr .= " asc";
                         }
-                        elsif ($direction->{$column} =~ /^desc$/i) {
+                        elsif ($direction->{$column} =~ /^d/i) {
                             $order_by_dbexpr .= " desc";
                         }
                     }
@@ -1108,10 +1160,12 @@ sub _mk_select_joined_sql {
             if ($param =~ /^begin_(.*)/) {
                 $column = $1;
                 $sqlop = ">=";
+                $inferred_op = 0;
             }
             elsif ($param =~ /^end_(.*)/) {
                 $column = $1;
                 $sqlop = "<=";
+                $inferred_op = 0;
             }
             $column_def = $table_def->{column}{$column};
         }
@@ -1166,7 +1220,7 @@ sub _mk_select_joined_sql {
                 $paramvalue =~ s/\?/_/g;
                 $paramvalue = "'$paramvalue'";
             }
-            elsif ($sqlop eq "in" || $sqlop eq "=") {
+            elsif ($sqlop eq "in" || ($inferred_op && $sqlop eq "=")) {
 
                 if (! defined $paramvalue || $paramvalue eq "NULL") {
                     $sqlop = "is";
@@ -1295,6 +1349,9 @@ sub _mk_select_joined_sql {
             }
             else {
                 push(@join_conditions, split(/ +and +/,$where_condition)) if ($where_condition);
+                if ($options->{hint} && $self->{table}{$table}{alias} && $tablealias eq $self->{table}{$table}{alias}) {
+                    $tableref .= " $options->{hint}";
+                }
                 push(@from_tables, $tableref);
                 #print "   $tablealias is [$dbtable] as [$tableref] where [$where_condition]\n";
             }
@@ -1304,6 +1361,9 @@ sub _mk_select_joined_sql {
         $tablealias = $tablealiases->[0];
         $table = $tablealiashref->{$tablealias}{table};
         $tableref = ($table) ? "$table $tablealias" : $tablealias;
+        if ($options->{hint} && $self->{table}{$table}{alias} && $tablealias eq $self->{table}{$table}{alias}) {
+            $tableref .= " $options->{hint}";
+        }
         push(@from_tables, $tableref);
     }
 
@@ -1627,7 +1687,7 @@ sub _mk_update_sql {
                     $value = "'$value'";
                 }
                 if ($tabcols->{$col}{dbexpr_update}) {
-                    $value = sprintf($tabcols->{$col}{dbexpr_update}, $value);
+                    $value = sprintf($tabcols->{$col}{dbexpr_update}, $value, $value, $value, $value, $value);
                 }
                 push(@set, "$col = $value");
             }
@@ -1860,7 +1920,7 @@ sub _select_row {
 sub _select_rows {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $cols, $params, $paramvalues, $order_by, $startrow, $endrow,
-        $sortdircol, $keycolidx, $writeable, $columntype, $summarykeys) = @_;
+        $sortdircol, $keycolidx, $writeable, $columntype, $group_by) = @_;
     my ($sql, $param, @params, %paramvalues, @paramvalues);
 
     $self->{error} = "";
@@ -1877,11 +1937,11 @@ sub _select_rows {
 
     if ($self->{table}{$table}{rawaccess}) {
         $sql = $self->_mk_select_sql($table, $cols, \@params, \%paramvalues, $order_by,
-            $startrow, $endrow, $sortdircol, $keycolidx, $writeable, $columntype, $summarykeys);
+            $startrow, $endrow, $sortdircol, $keycolidx, $writeable, $columntype, $group_by);
     }
     else {
         $sql = $self->_mk_select_rows_sql($table, $cols, \@params, \%paramvalues, $order_by,
-            $startrow, $endrow, $sortdircol, $keycolidx, $writeable, $columntype, $summarykeys);
+            $startrow, $endrow, $sortdircol, $keycolidx, $writeable, $columntype, $group_by);
     }
     $self->{sql} = $sql;
     my $retval = $self->_selectrange_arrayref($sql, $startrow, $endrow, undef, @paramvalues);
@@ -1915,22 +1975,21 @@ sub _insert_row {
     $retval;
 }
 
-# $ok = $rep->_insert_rows ($table, \@cols, \@rows);
+# $nrows = $rep->_insert_rows ($table, \@cols, \@rows);
 sub _insert_rows {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $cols, $rows) = @_;
     $self->{error} = "";
-    my ($row, $sql, $nrows, $ok, $retval);
+    my ($sql, $retval);
    
     my $dbh = $self->{dbh};
     return 0 if (!defined $dbh);
 
-    $ok = 1;
+    my $nrows = 0;
+    my $ok = 1;
     $sql = $self->_mk_insert_row_sql($table, $cols);
     my $debug_sql = $self->{context}{options}{debug_sql};
-    foreach $row (@$rows) {
-        $nrows += $self->{numrows};
-
+    foreach my $row (@$rows) {
         if ($debug_sql) {
             print "DEBUG_SQL: _insert_rows()\n";
             print "DEBUG_SQL: bind vars [", join("|",map { defined $_ ? $_ : "undef" } @$row), "]\n";
@@ -1942,7 +2001,10 @@ sub _insert_rows {
             print "\n";
         }
 
-        if (!$retval) {
+        if ($retval) {
+            $nrows ++;
+        }
+        else {
             $self->{numrows} = $nrows;
             $ok = 0;
             last;
@@ -1950,8 +2012,8 @@ sub _insert_rows {
     }
     $self->{sql} = $sql;
     $self->{numrows} = $nrows;
-    &App::sub_exit($ok) if ($App::trace);
-    return($ok);
+    &App::sub_exit($nrows) if ($App::trace);
+    return($nrows);
 }
 
 sub _delete {
@@ -1994,6 +2056,7 @@ sub _update {
         print $sql;
     }
     my $retval = $self->{dbh}->do($sql);
+    $retval = 0 if ($retval == 0);
     if ($debug_sql) {
         print "DEBUG_SQL: retval [$retval] $DBI::errstr\n";
         print "\n";
@@ -2046,6 +2109,50 @@ sub _delete_rows {
     $retval = $dbh->do($sql) if (defined $dbh);
     if ($debug_sql) {
         print "DEBUG_SQL: retval [$retval] $DBI::errstr\n";
+        print "\n";
+    }
+
+    &App::sub_exit($retval) if ($App::trace);
+    $retval;
+}
+
+sub _do {
+    &App::sub_entry if ($App::trace);
+    my ($self, $sql) = @_;
+    $self->{error} = "";
+    $self->{sql} = $sql;
+    my $dbh = $self->{dbh};
+    my $retval = 0;
+
+    my $debug_sql = $self->{context}{options}{debug_sql};
+    if ($debug_sql) {
+        print "DEBUG_SQL: _do()\n";
+        print $sql;
+    }
+    if (defined $dbh) {
+        if ($sql =~ /^select/i) {
+            $retval = $dbh->selectall_arrayref($sql);
+        }
+        else {
+            $retval = $dbh->do($sql);
+        }
+    }
+    if ($debug_sql) {
+        my $nrows = 0;
+        if ($retval) {
+            if (ref($retval)) {
+                $nrows = $#$retval + 1;
+            }
+            else {
+                $nrows = $retval;
+            }
+        }
+        print "DEBUG_SQL: nrows [$nrows] $DBI::errstr\n";
+        if ($debug_sql >= 2 && ref($retval)) {
+            foreach my $row (@$retval) {
+                print "DEBUG_SQL: [", join("|",map { defined $_ ? $_ : "undef"} @$row), "]\n";
+            }
+        }
         print "\n";
     }
 
@@ -2309,6 +2416,8 @@ sub _load_table_metadata_from_source {
 
         # if we got a list of columns for the table from the database
         if (defined $phys_columns && ref($phys_columns) eq "ARRAY") {
+
+            $table_def->{phys_columns} = [ @$phys_columns ];
 
             for ($colnum = 0; $colnum <= $#$phys_columns; $colnum++) {
                 $column = $phys_columns->[$colnum];

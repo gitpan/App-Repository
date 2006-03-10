@@ -2,12 +2,47 @@
 # CHANGE LOG
 #########################################
 
+0.96
+ x test suites are driven by app.conf (App::Options) (dbdriver/dbhost/dbname/dbuser/dbpass)
+   (and they succeed trivially when no app.conf is set up)
+ x App::Repository::DBI - change the meaning of param.eq, .eq means =, not infer IN
+ x App::Repository::DBI - return 0 rather than 0E0 from update()
+ x App::SessionObject::RepositoryObjectSet - add max_age feature to serve as default if not provided in get_objects({max_age => 0})
+ x App::Repository::DBI - dbexpr_update option sprintf()s using more than one $value (5 actually) for 'if(%s=5,%s,3)' expressions
+ x App::Repository::DBI - add support for literal aggregation functions
+ x App::Repository::DBI - rename summarykeys to group_by
+ x App::Repository::DBI - enhanced debug_sql output on _do()
+ x App::Repository::DBI - protect against undef params
+ x App::Repository::DBI - retry when _connect() gets a Lost connection
+ x App::Repository::DBI - _get_default_columns() use configured columns for get_hashes() etc. when no columns specified
+ x App::Repository::DBI - table-level hints now work (main table only) (MySQL-compatible)
+ x App::Repository/::DBI - _get_default_columns($table) returns {default_columns}, {phys_columns}, or {columns}
+ x App::ValueDomain::RepositoryTables - a list of tables from a repository
+ x App::ValueDomain::RepositoryTableColumns - a list of column from a table in a repository
+ x App::ValueDomain::Repository - added EACH as a special kind of {extra_values}
+ x App::ValueDomain::Repository - added {extra_values} and {extra_labels} attribs
+ x App::Repository - (logical to physical) table redirection
+ x App::Repository::evaluate_expressions() - can now evaluate expressions for column definitions
+ x App::Repository::sort() - can now sort arrays of hashrefs as well as arrays of arrayrefs
+ x App::Repository::DBI - add _do($sql) method - same as $db->{dbh}->do($sql) with added debugging features
+   The "_" reminds you this is not really a portable method in the spirit of the App::Repository abstraction.
+   It is provided so that you won't be tempted to use the work-around described above.
+   Any need to use this method is an indication that the API still needs work. Please send feedback to me.
+   NOTE: _do() works for select as well as insert/update/delete statements, returning the array of rows
+ x App::ValueDomain::Repository - add extra_values, extra_labels, and order_by
+ x App::SessionObject::RepositoryObjectSet - enable relevant "columns" to be configured (limits them)
+ x App::SessionObject::RepositoryObjectDomain - can configure mappings of domain params to individual object set params
+ x $rep->new_object() calls class-specific (RepositoryObject) _init() method to set up object values
+ x $rep->new_object() now adds configured "default" values
+ x $rep->new_object() now throws an exception for NULL values in "not_null" and alternate key columns
+ x $rep->new_object() has option { temp => 1 } that doesn't create the RepositoryObject in the repository
+
 0.95
  x add "config_from_options" as a default behavior for App::Repository::DBI
  x add $rep->new_object($table, {@initializers}); (and tests)
  x add $repobj->delete(); (and tests)
- x add $rep->export_rows(...)  (export to file)
- x add $rep->import_rows(...)  (import from file)
+ x add $rep->import_rows(...)  (import from file) (handles CSV by default)
+ x add $rep->export_rows(...)  (export to file)   (handles CSV by default)
 
 0.94
  x add "distinct => 1" to options hash for get_rows()/get_row()

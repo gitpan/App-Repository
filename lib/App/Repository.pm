@@ -1,6 +1,6 @@
 
 #############################################################################
-## $Id: Repository.pm,v 1.21 2005/08/09 18:50:17 spadkins Exp $
+## $Id: Repository.pm 3523 2005-11-25 16:35:03Z spadkins $
 #############################################################################
 
 package App::Repository;
@@ -13,6 +13,7 @@ use strict;
 
 use Date::Format;
 use App::RepositoryObject;
+use App::Reference;
 
 =head1 NAME
 
@@ -495,6 +496,7 @@ tbd.
 sub get {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $params, $cols, $options) = @_;
+    die "get(): params undefined" if (!defined $params);
     my ($row, $wantarray);
     if (ref($cols) eq "ARRAY") {
         $wantarray = 1;
@@ -548,6 +550,7 @@ tbd.
 sub set {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $params, $col, $value, $options) = @_;
+    die "set(): params undefined" if (!defined $params);
     $self->_load_table_metadata($table) if (! defined $self->{table}{$table}{loaded});
     my ($nrows);
     if ($col && ref($col) eq "") {
@@ -589,6 +592,7 @@ tbd.
 sub get_row {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $params, $cols, $options) = @_;
+    die "get_row(): params undefined" if (!defined $params);
 
     my ($row);
     my $repname = $self->{table}{$table}{repository};
@@ -599,15 +603,44 @@ sub get_row {
     else {
         $self->_load_table_metadata($table) if (! defined $self->{table}{$table}{loaded});
         if (!defined $cols) {
-            $cols = $self->{table}{$table}{columns};
+            $cols = $self->_get_default_columns($table);
         }
         elsif (!ref($cols)) {
             $cols = [ $cols ];
         }
         elsif ($#$cols == -1) {
-            @$cols = @{$self->{table}{$table}{columns}};
+            my $columns = $self->_get_default_columns($table);
+            @$cols = @$columns;
         }
+
+        my ($col, $contains_expr);
+        my $column_defs = $self->{table}{$table}{column};
+        for (my $i = 0; $i <= $#$cols; $i++) {
+            $col = $cols->[$i];
+            $contains_expr = 1 if ($column_defs->{$col}{expr});
+            # TO BE IMPLEMENTED: Automatically follow relationships for column defs
+            # TO BE IMPLEMENTED: Delegated get_rows() and merge on another table
+            #for ($rel = 0; $rel <= $#rel_prefix; $rel++) {
+            #    $rel_prefix  = $rel_prefix[$rel];
+            #    $rel_cols    = $rel_cols[$rel];
+            #    $rel_col_idx = $rel_col_idx[$rel];
+            #    if ($col =~ /^${rel_prefix}_(.+)$/) {
+            #        $col2 = $1;
+            #        push(@$rel_cols, $col2);
+            #        $rel_col_idx->[$#$rel_cols] = $i;
+            #        last;
+            #    }
+            #}
+        }
+        if ($contains_expr) {
+            $cols = $self->extend_columns($table, $cols);
+        }
+
         $row = $self->_get_row($table, $params, $cols, $options);
+
+        if ($contains_expr) {
+            $self->evaluate_expressions($table, $params, $cols, [$row], $options);
+        }
     }
     &App::sub_exit($row) if ($App::trace);
     return($row);
@@ -649,6 +682,7 @@ tbd.
 sub set_row {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $params, $cols, $row, $options) = @_;
+    die "set_row(): params undefined" if (!defined $params);
     $self->_load_table_metadata($table) if (! defined $self->{table}{$table}{loaded});
 
     my ($nrows, $key_defined);
@@ -782,25 +816,108 @@ sub get_rows {
     my ($self, $table, $params, $cols, $options) = @_;
     my ($rows);
     my $repname = $self->{table}{$table}{repository};
+    my $realtable = $self->{table}{$table}{table} || $table;
     if (defined $repname && $repname ne $self->{name}) {
         my $rep = $self->{context}->repository($repname);
-        $rows = $rep->get_rows($table, $params, $cols, $options);
+        $rows = $rep->get_rows($realtable, $params, $cols, $options);
+    }
+    elsif (defined $realtable && $realtable ne $table) {
+        $rows = $self->get_rows($realtable, $params, $cols, $options);
     }
     else {
         $self->_load_table_metadata($table) if (! defined $self->{table}{$table}{loaded});
         if (!defined $cols) {
-            $cols = $self->{table}{$table}{columns};
+            $cols = $self->_get_default_columns($table);
         }
         elsif (!ref($cols)) {
             $cols = [ $cols ];
         }
         elsif ($#$cols == -1) {
-            @$cols = @{$self->{table}{$table}{columns}};
+            my $columns = $self->_get_default_columns($table);
+            @$cols = @$columns;
         }
+
+        my ($col, $contains_expr);
+        my $column_defs = $self->{table}{$table}{column};
+        for (my $i = 0; $i <= $#$cols; $i++) {
+            $col = $cols->[$i];
+            $contains_expr = 1 if ($column_defs->{$col}{expr});
+            # TO BE IMPLEMENTED: Automatically follow relationships for column defs
+            # TO BE IMPLEMENTED: Delegated get_rows() and merge on another table
+            #for ($rel = 0; $rel <= $#rel_prefix; $rel++) {
+            #    $rel_prefix  = $rel_prefix[$rel];
+            #    $rel_cols    = $rel_cols[$rel];
+            #    $rel_col_idx = $rel_col_idx[$rel];
+            #    if ($col =~ /^${rel_prefix}_(.+)$/) {
+            #        $col2 = $1;
+            #        push(@$rel_cols, $col2);
+            #        $rel_col_idx->[$#$rel_cols] = $i;
+            #        last;
+            #    }
+            #}
+        }
+        if ($contains_expr) {
+            $cols = $self->extend_columns($table, $cols);
+        }
+
         $rows = $self->_get_rows($table, $params, $cols, $options);
+
+        if ($contains_expr) {
+            $self->evaluate_expressions($table, $params, $cols, $rows, $options);
+        }
     }
     &App::sub_exit($rows) if ($App::trace);
     return($rows);
+}
+
+sub _get_default_columns {
+    &App::sub_entry if ($App::trace);
+    my ($self, $table) = @_;
+    my $table_def = $self->{table}{$table};
+    my $columns = $table_def->{default_columns} || $table_def->{columns};
+    $columns = $table_def->{columns} if ($columns eq "configured");
+    die "Unknown default columns [$columns]" if (ref($columns) ne "ARRAY");
+    &App::sub_exit($columns) if ($App::trace);
+    return($columns);
+}
+
+sub extend_columns {
+    &App::sub_entry if ($App::trace);
+    my ($self, $table, $cols) = @_;
+    my (%colidx, $expr_columns, $expr, $extended, $col);
+    for (my $i = 0; $i <= $#$cols; $i++) {
+        $col = $cols->[$i];
+        $colidx{$col} = $i;
+    }
+    my $column_defs = $self->{table}{$table}{column};
+    for (my $i = 0; $i <= $#$cols; $i++) {
+        $col = $cols->[$i];
+        if ($column_defs->{$col}{expr_columns}) {
+            $expr_columns = $column_defs->{$col}{expr_columns};
+        }
+        elsif ($column_defs->{$col}{expr}) {
+            $expr = $column_defs->{$col}{expr};
+            $expr =~ s/^[^\{\}]*\{//;
+            $expr =~ s/\}[^\{\}]*$//;
+            $expr_columns = [ split(/\}[^\{\}]*\{/, $expr) ];
+            $column_defs->{$col}{expr_columns} = $expr_columns;
+        }
+        else {
+            next;
+        }
+        foreach my $expr_col (@$expr_columns) {
+            if (! defined $colidx{$expr_col}) {
+                if (!$extended) {
+                    $cols = [ @$cols ];  # make a copy. don't extend original.
+                    $extended = 1;
+                }
+                push(@$cols, $expr_col);
+                $colidx{$expr_col} = $#$cols;
+            }
+        }
+    }
+    &App::sub_exit($cols) if ($App::trace);
+    return($cols);
 }
 
 #############################################################################
@@ -832,8 +949,21 @@ tbd.
 sub set_rows {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $params, $cols, $rows, $options) = @_;
-    $self->_load_table_metadata($table) if (! defined $self->{table}{$table}{loaded});
-    my $nrows = $self->_set_rows($table, $params, $cols, $rows, $options);
+    die "set_rows(): params undefined" if (!defined $params);
+    my ($nrows);
+    my $repname = $self->{table}{$table}{repository};
+    my $realtable = $self->{table}{$table}{table} || $table;
+    if (defined $repname && $repname ne $self->{name}) {
+        my $rep = $self->{context}->repository($repname);
+        $nrows = $rep->set_rows($realtable, $params, $cols, $rows, $options);
+    }
+    elsif (defined $realtable && $realtable ne $table) {
+        $nrows = $self->set_rows($realtable, $params, $cols, $rows, $options);
+    }
+    else {
+        $self->_load_table_metadata($table) if (! defined $self->{table}{$table}{loaded});
+        $nrows = $self->_set_rows($table, $params, $cols, $rows, $options);
+    }
     &App::sub_exit($nrows) if ($App::trace);
     return($nrows);
 }
@@ -869,6 +999,7 @@ tbd.
 sub get_hash {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $params, $cols, $options) = @_;
+    die "get_hash(): params undefined" if (!defined $params);
     $cols = [] if (!$cols);
     my $row = $self->get_row($table, $params, $cols, $options);
     my ($hash, $col, $value);
@@ -965,6 +1096,7 @@ tbd.
 sub get_object {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $params, $cols, $options) = @_;
+    die "get_object(): params undefined" if (!defined $params);
     my $tabledef = $self->{table}{$table};
     my $class = $tabledef->{class} || "App::RepositoryObject";
     App->use($class);
@@ -1184,6 +1316,7 @@ tbd.
 sub set_hash {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $params, $cols, $values, $options) = @_;
+    die "set_hash(): params undefined" if (!defined $params);
     $self->_load_table_metadata($table) if (! defined $self->{table}{$table}{loaded});
     &App::sub_exit() if ($App::trace);
 }
@@ -1500,6 +1633,7 @@ sub _key_to_params {
 }
 
 # $ok = $rep->insert_row ($table, \@cols, \@row);
+# $ok = $rep->insert_row ($table, \%obj);
 sub insert_row {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $cols, $row, $options) = @_;
@@ -1561,41 +1695,95 @@ sub insert {
 # set in the database that I don't know about, and I want them to be
 # reflected in the returned object.
 # NOTE 2: Tables which have
+# $object = $rep->new_object($table, \@cols, \@row);
+# $object = $rep->new_object($table, \%obj_values);
+# $object = $rep->new_object($table, $col, $value);
+# $object = $rep->new_object($table);
 sub new_object {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $cols, $row, $options) = @_;
+
+    my $tabledef = $self->{table}{$table};
+    my $class = $tabledef->{class} || "App::RepositoryObject";
+
     my $ref = ref($cols);
-    if ($ref && $ref ne "ARRAY") {
-        $self->_set_defaults($table, $cols);
-        $self->_check_required_fields($table, $cols);
-    }
-    my $retval = $self->insert_row($table, $cols, $row, $options);
-    die "new($table) unable to create a new row" if (!$retval);
-    my $params = $self->_last_inserted_id();
-    if (!$params) {
-        $params = {};
+    my ($object);
+    if ($ref && $ref eq "ARRAY") {
+        $object = {};
         for (my $i = 0; $i <= $#$cols; $i++) {
-            if (!$row->[$i] || $row->[$i] !~ /^@/) {
-                $params->{$cols->[$i] . ".eq"} = $row->[$i];
-            }
+            $object->{$cols->[$i]} = $row->[$i];
         }
     }
-    my $object = $self->get_object($table, $params, undef, $options);
+    elsif ($ref) {
+        $object = { %$cols };
+    }
+    elsif ($cols) {
+        $object = { $cols => $row };
+    }
+    else {
+        $object = {};
+    }
+
+    App->use($class);
+    bless $object, $class;
+    $object->_init();
+    $self->_check_default_and_required_fields($object);
+
+    if (!$options->{temp}) {
+        my $retval = $self->insert_row($table, $object, undef, $options);
+        die "new($table) unable to create a new row" if (!$retval);
+        my $params = $self->_last_inserted_id();
+        if (!$params) {
+            $params = {};
+            foreach my $col (keys %$object) {
+                $params->{$col . ".eq"} = $object->{$col};
+            }
+        }
+        $object = $self->get_object($table, $params, undef, $options);
+    }
+
     &App::sub_exit($object) if ($App::trace);
     $object;
 }
 
-sub _set_defaults {
+sub _check_default_and_required_fields {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $hash) = @_;
-    # TODO: flesh this out
-    &App::sub_exit() if ($App::trace);
-}
-
-sub _check_required_fields {
-    &App::sub_entry if ($App::trace);
-    my ($self, $table, $hash) = @_;
-    # TODO: flesh this out
+    my $tabledef = $self->{table}{$table};
+    my $columns = $tabledef->{column};
+    if ($columns) {
+        foreach my $column (keys %$columns) {
+            if (!defined $hash->{$column}) {
+                if (defined $columns->{$column}{default}) {
+                    $hash->{$column} = $columns->{$column}{default};
+                }
+                elsif (defined $columns->{$column}{not_null}) {
+                    die "Illegal object value for $table: $column cannot be NULL (i.e. undef)";
+                }
+            }
+        }
+    }
+    my $primary_key = $tabledef->{primary_key};
+    if ($primary_key) {
+        # Watch out for auto-generated primary keys. It's OK for them to be NULL.
+        #if ($#$primary_key > 0) {
+        #    foreach my $column (@$primary_key) {
+        #        if (!defined $hash->{$column}) {
+        #            die "Illegal object value for $table: $column cannot be NULL because it exists in the primary key";
+        #        }
+        #    }
+        #}
+    }
+    my $alternate_keys = $tabledef->{alternate_key};
+    if ($alternate_keys) {
+        foreach my $alternate_key (@$alternate_keys) {
+            foreach my $column (@$alternate_key) {
+                if (!defined $hash->{$column}) {
+                    die "Illegal object value for $table: $column cannot be NULL because it exists in an alternate key";
+                }
+            }
+        }
+    }
     &App::sub_exit() if ($App::trace);
 }
 
@@ -1604,11 +1792,11 @@ sub _last_inserted_id {
     return(undef);  # sorry. maybe some subclass will know how to do this.
 }
 
-# $ok = $rep->insert_rows ($table, \@cols, \@rows);
+# $nrows = $rep->insert_rows ($table, \@cols, \@rows);
 sub insert_rows {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $cols, $rows, $options) = @_;
-    my ($retval, $hashes, $hash, $columns);
+    my ($nrows, $hashes, $hash, $columns);
     if (ref($cols) eq "ARRAY" && ref($cols->[0]) eq "HASH") {
         $hashes = $cols;     # an array of hashrefs was passed in instead of cols/rows
         $hash = $hashes->[0];
@@ -1642,18 +1830,19 @@ sub insert_rows {
             }
             push(@rows, $row);
         }
-        $retval = $self->_insert_rows($table, \@cols, \@rows, $options);
+        $nrows = $self->_insert_rows($table, \@cols, \@rows, $options);
     }
     else {
-        $retval = $self->_insert_rows($table, $cols, $rows, $options);
+        $nrows = $self->_insert_rows($table, $cols, $rows, $options);
     }
-    &App::sub_exit($retval) if ($App::trace);
-    $retval;
+    &App::sub_exit($nrows) if ($App::trace);
+    $nrows;
 }
 
 sub delete {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $params, $cols, $row, $options) = @_;
+    die "set_row(): params undefined" if (!defined $params);
     my $retval = $self->_delete($table,$params,$cols,$row,$options);
     &App::sub_exit($retval) if ($App::trace);
     return($retval);
@@ -1662,6 +1851,7 @@ sub delete {
 sub update {
     &App::sub_entry if ($App::trace);
     my ($self, $table, $params, $cols, $row, $options) = @_;
+    die "update(): params undefined" if (!defined $params);
     my $retval = $self->_update($table,$params,$cols,$row,$options);
     &App::sub_exit($retval) if ($App::trace);
     return($retval);
@@ -1679,7 +1869,7 @@ sub _insert_row {
 
 sub _insert_rows {
     &App::sub_entry if ($App::trace);
-    my ($self, $table, $params, $cols, $row, $options) = @_;
+    my ($self, $table, $cols, $rows, $options) = @_;
     $self->{error} = "";
     my $retval = 0;
     die "_insert_rows(): not yet implemented";
@@ -2503,47 +2693,192 @@ sub summarize {
 
 =head2 sort()
 
-    * Signature: $sorted_rows = $rep->sort($rows, $sortcolidx);
-    * Signature: $sorted_rows = $rep->sort($rows, $sortcolidx, $sorttype);
-    * Signature: $sorted_rows = $rep->sort($rows, $sortcolidx, $sorttype, $sortdir);
+    * Signature: $sorted_rows = $rep->sort($rows, $sortkeys);
+    * Signature: $sorted_rows = $rep->sort($rows, $sortkeys, $sorttype);
+    * Signature: $sorted_rows = $rep->sort($rows, $sortkeys, $sorttype, $sortdir);
     * Param:     $rows             [][]
-    * Param:     $sortcolidx       []
+    * Param:     $sortkeys       []
     * Param:     $sorttype         []
     * Param:     $sortdir          []
     * Return:    $sorted_rows      []
     * Throws:    App::Exception::Repository
     * Since:     0.01
 
-    Sample Usage: 
+    Sample Usage: (to sort arrayrefs)
 
-    @rows = (
-        [ 5, "Jim", "Green", 13.5, 320, ],
-        [ 3, "Bob", "Green",  4.2, 230, ],
-        [ 9, "Ken", "Green", 27.4, 170, ],
-        [ 2, "Kim", "Blue",  11.7, 440, ],
-        [ 7, "Jan", "Blue",  55.1,  90, ],
-        [ 1, "Ben", "Blue",  22.6, 195, ],
-    );
-    # @columns = ( "id", "name", "team", "rating", "score" ); # not needed
-    @sortcolidx = ( 2, 4 );      # "team", "score" (descending)
-    @sorttype = ( "C", "N" );    # Character, Numeric
-    @sortdir = ( "UP", "DOWN" );
+      @rows = (
+          [ 5, "Jim", "Green", 13.5, 320, ],
+          [ 3, "Bob", "Green",  4.2, 230, ],
+          [ 9, "Ken", "Green", 27.4, 170, ],
+          [ 2, "Kim", "Blue",  11.7, 440, ],
+          [ 7, "Jan", "Blue",  55.1,  90, ],
+          [ 1, "Ben", "Blue",  22.6, 195, ],
+      );
+      # @columns = ( "id", "name", "team", "rating", "score" ); # not needed
+      @sortkeys = ( 2, 4 );          # "team", "score" (descending)
+      @sorttype = ( "C", "N" );      # Character, Numeric
+      @sortdir = ( "asc", "desc" );  # Ascending, Descending
+      $sorted_rows = $rep->sort(\@rows, \@sortkeys, \@sorttype, \@sortdir);
 
-    $sorted_rows = $rep->sort(\@rows, \@sortcolidx, \@sorttype, \@sortdir);
+    OR (to sort hashrefs)
+
+      @rows = (
+          { id => 5, name => "Jim", team => "Green", rating => 13.5, score => 320, },
+          { id => 3, name => "Bob", team => "Green", rating =>  4.2, score => 230, },
+          { id => 9, name => "Ken", team => "Green", rating => 27.4, score => 170, },
+          { id => 2, name => "Kim", team => "Blue",  rating => 11.7, score => 440, },
+          { id => 7, name => "Jan", team => "Blue",  rating => 55.1, score =>  90, },
+          { id => 1, name => "Ben", team => "Blue",  rating => 22.6, score => 195, },
+      );
+      # @columns = ( "id", "name", "team", "rating", "score" ); # not needed
+      @sortkeys = ( "team", "score" );          # "team", "score" (descending)
+      @sorttype = ( "C", "N" );      # Character, Numeric
+      @sortdir = ( "asc", "desc" );  # Ascending, Descending
+      $sorted_rows = $rep->sort(\@rows, \@sortkeys, \@sorttype, \@sortdir);
 
 =cut
 
 sub sort {
     &App::sub_entry if ($App::trace);
-    my ($self, $rows, $sortcolidx, $sorttype, $sortdir) = @_;
+    my ($self, $rows, $sortkeys, $sorttype, $sortdir) = @_;
 
-    @App::Repository::sort_keys  = @$sortcolidx;
+    @App::Repository::sort_keys  = @$sortkeys;
     @App::Repository::sort_types = ($sorttype ? @$sorttype : ());
     @App::Repository::sort_dirs  = ($sortdir ? @$sortdir : ());
 
-    my $sorted_rows = [ sort rows_by_indexed_values @$rows ];
+    my ($sorted_rows);
+    if ($rows && ref($rows) eq "ARRAY" && $#$rows > 0) {
+        if (ref($rows->[0]) eq "ARRAY") {
+            $sorted_rows = [ sort rows_by_indexed_values @$rows ];
+        }
+        else {
+            $sorted_rows = [ sort hashes_by_indexed_values @$rows ];
+        }
+    }
+    else {
+        $sorted_rows = $rows;
+    }
     &App::sub_exit($sorted_rows) if ($App::trace);
     return($sorted_rows);
+}
+
+#############################################################################
+# evaluate_expressions()
+#############################################################################
+
+=head2 evaluate_expressions()
+
+    * Signature: $nrows = $rep->evaluate_expressions($table, $params, $cols, $rows, $options);
+    * Param:     $table     string
+    * Param:     $params    HASH,scalar
+    * Param:     $cols      ARRAY
+    * Param:     $rows      ARRAY
+    * Param:     $options   undef,HASH
+    * Return:    $nrows     integer
+    * Throws:    App::Exception::Repository
+    * Since:     0.50
+
+    Sample Usage:
+
+    $rep->evaluate_expressions($table, $params, \@cols, $rows, \%options);
+
+tbd.
+
+=cut
+
+sub evaluate_expressions {
+    &App::sub_entry if ($App::trace);
+    my ($self, $table, $params, $cols, $rows, $options) = @_;
+    $options ||= {};
+    my %options = %$options;
+    my $column_defs = $self->{table}{$table}{column};
+    my (@expr_col_idx, @expr_col, $col, %colidx);
+
+    for (my $i = 0; $i <= $#$cols; $i++) {
+        $col = $cols->[$i];
+        $colidx{$col} = $i;
+        if ($column_defs->{$col}{expr}) {
+            push(@expr_col, $col);
+            push(@expr_col_idx, $i);
+        }
+    }
+
+    if ($#expr_col > -1) {
+        foreach my $row (@$rows) {
+            for (my $i = 0; $i <= $#expr_col; $i++) {
+                $col = $expr_col[$i];
+                $row->[$expr_col_idx[$i]] = $self->evaluate_expression($column_defs->{$col}{expr}, $row, \%colidx, $column_defs);
+            }
+        }
+    }
+
+    &App::sub_exit() if ($App::trace);
+}
+
+sub evaluate_expression {
+    &App::sub_entry if ($App::trace);
+    my ($self, $expr, $values, $validx, $column_defs) = @_;
+
+    my $value = $expr;
+    if ($values) {
+        my ($col, $val, $idx);
+        if (ref($values) eq "ARRAY") {
+            while ($value =~ /\{([^{}]+)\}/) {
+                $col = $1;
+                $idx = $validx->{$col};
+                if (defined $idx) {
+                    $val = $values->[$idx];
+                    $val = $column_defs->{$col}{expr} if (!defined $val);
+                    $val = $column_defs->{$col}{default} if (!defined $val);
+                    $val = "undef" if (!defined $val);
+                    $val = "($val)" if ($val =~ /[-\+\*\/]/);
+                }
+                else {
+                    $val = "undef";
+                }
+                $value =~ s/\{$col\}/$val/g || last;
+            }
+        }
+        else {
+            while ($value =~ /\{([^{}]+)\}/) {
+                $col = $1;
+                $val = $values->{$col};
+                $val = App::Reference->get($col, $values) if (!defined $val && $col =~ /[\[\]\{\}\.]/);
+                $val = $column_defs->{$col}{expr} if (!defined $val);
+                $val = $column_defs->{$col}{default} if (!defined $val);
+                $val = "undef" if (!defined $val);
+                $val = "($val)" if ($val =~ /[-\+\*\/]/);
+                $value =~ s/\{$col\}/$val/g || last;
+            }
+        }
+    }
+    $value = $self->evaluate_constant_expression($value);
+
+    &App::sub_exit($value) if ($App::trace);
+    return($value);
+}
+
+sub evaluate_constant_expression {
+    &App::sub_entry if ($App::trace);
+    my ($self, $value) = @_;
+    my $NUM = "-?[0-9.]+";
+
+    while ($value =~ /\([^()]*\)/) {
+        $value =~ s/\(([^()]+)\)/$self->evaluate_constant_expression($1)/eg;
+    }
+    if ($value =~ m!^[-\+\*/0-9\.\s]+$!) {  # all numeric expression
+        $value =~ s/\s+//g;
+    }
+    while ($value =~ s!($NUM)\s*([\*/])\s*($NUM)!($2 eq "*") ? ($1 * $3) : ($3 ? ($1 / $3) : "undef")!e) {
+        # nothing else needed
+    }
+    while ($value =~ s!($NUM)\s*([\+-])\s*($NUM)!($2 eq "+") ? ($1 + $3) : ($1 - $3)!e) {
+        # nothing else needed
+    }
+    $value = undef if ($value =~ /undef/);
+
+    &App::sub_exit($value) if ($App::trace);
+    return($value);
 }
 
 #############################################################################
@@ -3025,7 +3360,9 @@ sub current_datetime {
 
     @App::Repository::sort_keys = ( 1, 3, 2 );
     @App::Repository::sort_types = ("C", "N", "C");
-    @App::Repository::sort_dirs = ("UP", "DOWN", "DOWN");
+    @App::Repository::sort_dirs = ("asc", "desc", "desc");
+    # OR @App::Repository::sort_dirs = ("_asc", "_desc", "_desc");
+    # OR @App::Repository::sort_dirs = ("UP", "DOWN", "DOWN");
 
     @sorted_data = sort rows_by_indexed_values @data;
 
@@ -3047,7 +3384,63 @@ sub rows_by_indexed_values {
             $sign = ($a->[$idx] cmp $b->[$idx]);
         }
         if ($sign) {
-            $sign = -$sign if (defined $dir && $dir =~ /^[Dd]/); # ("DOWN", "desc", etc.)
+            $sign = -$sign if (defined $dir && $dir =~ /^_?[Dd]/); # ("DOWN", "desc", "_desc", etc.)
+            return ($sign);
+        }
+    }
+    return 0;
+}
+
+#############################################################################
+# hashes_by_indexed_values()
+#############################################################################
+
+=head2 hashes_by_indexed_values()
+
+    * Signature: &App::Repository::hashes_by_indexed_values($a,$b);
+    * Param:     $a            []
+    * Param:     $b            []
+    * Return:    void
+    * Throws:    App::Exception::Repository
+    * Since:     0.01
+
+    Sample Usage: 
+
+    @data = (
+        { size => 5, name => "Jim", color => "Red",    score => 13.5, ],
+        { size => 3, name => "Bob", color => "Green",  score =>  4.2, ],
+        { size => 9, name => "Ken", color => "Blue",   score => 27.4, ],
+        { size => 2, name => "Kim", color => "Yellow", score => 11.7, ],
+        { size => 7, name => "Jan", color => "Purple", score => 55.1, ],
+    );
+
+    @App::Repository::sort_keys = ( "size", "color", "name" );
+    @App::Repository::sort_types = ("C", "N", "C");
+    @App::Repository::sort_dirs = ("asc", "desc", "desc");
+    # OR @App::Repository::sort_dirs = ("_asc", "_desc", "_desc");
+    # OR @App::Repository::sort_dirs = ("UP", "DOWN", "DOWN");
+
+    @sorted_data = sort hashes_by_indexed_values @data;
+
+The hashes_by_indexed_values() function is used to sort rows of data
+based on indexes, data types, and directions.
+
+=cut
+
+sub hashes_by_indexed_values {
+    my ($pos, $key, $type, $dir, $sign);
+    for ($pos = 0; $pos <= $#App::Repository::sort_keys; $pos++) {
+        $key  = $App::Repository::sort_keys[$pos];
+        $type = $App::Repository::sort_types[$pos];
+        $dir  = $App::Repository::sort_dirs[$pos];
+        if (defined $type && $type eq "N") {
+            $sign = ($a->{$key} <=> $b->{$key});
+        }
+        else {
+            $sign = ($a->{$key} cmp $b->{$key});
+        }
+        if ($sign) {
+            $sign = -$sign if (defined $dir && $dir =~ /^_?[Dd]/); # ("DOWN", "desc", "_desc", etc.)
             return ($sign);
         }
     }
