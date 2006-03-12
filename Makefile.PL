@@ -10,7 +10,7 @@ use ExtUtils::MakeMaker;
 %opts = (
     'NAME'        => 'App-Repository',
     'DISTNAME'    => 'App-Repository',
-    'VERSION'     => '0.96',
+    'VERSION'     => '0.962',
     'PREREQ_PM'   => { #'App::Context' => 0,  # core services
                        'DBI'          => 0,  # database access
                      },
