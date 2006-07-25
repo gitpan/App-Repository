@@ -1,6 +1,6 @@
 
 ######################################################################
-## File: $Id: Makefile.PL 3559 2006-03-01 03:36:15Z spadkins $
+## File: $Id: Makefile.PL 6704 2006-07-25 01:54:29Z spadkins $
 ######################################################################
 
 use ExtUtils::MakeMaker;
@@ -10,7 +10,7 @@ use ExtUtils::MakeMaker;
 %opts = (
     'NAME'        => 'App-Repository',
     'DISTNAME'    => 'App-Repository',
-    'VERSION'     => '0.962',
+    'VERSION'     => '0.963',
     'PREREQ_PM'   => { #'App::Context' => 0,  # core services
                        'DBI'          => 0,  # database access
                      },

@@ -287,6 +287,14 @@ $sql = $rep->_mk_select_sql("test_person",{
     },["first_name"]);
 is($sql, $expect_sql, "_mk_select_sql(): param.eq => in");
 &check_select($sql,0);
+$sql = $rep->_mk_select_sql("test_person",{
+        "_order" => [ "first_name", "age", "birth_dt", ],
+        "first_name" => "==stephen,paul",
+        "age" => "=37,39",
+        "birth_dt" => "==1962-01-01,1963-12-31",
+    },["first_name"]);
+is($sql, $expect_sql, "_mk_select_sql(): param.eq => in (inferred)");
+&check_select($sql,0);
 
 $expect_sql = <<EOF;
 select
@@ -423,23 +431,91 @@ $sql = $rep->_mk_select_sql("test_person",{
     },["first_name"]);
 is($sql, $expect_sql, "_mk_select_sql(): param.contains");
 &check_select($sql,0);
+$sql = $rep->_mk_select_sql("test_person",{
+        "_order" => [ "first_name", "age", "birth_dt", ],
+        "first_name" => "=~s",
+        "age" => "=~3",
+        "birth_dt" => "~1962",
+    },["first_name"]);
+is($sql, $expect_sql, "_mk_select_sql(): param.contains (inferred)");
+&check_select($sql,0);
 
 $expect_sql = <<EOF;
 select
    first_name
 from test_person
-where first_name like '%s%'
+where first_name not like '%s%'
+  and age not like '%3%'
+  and birth_dt not like '%1962%'
+EOF
+$sql = $rep->_mk_select_sql("test_person",{
+        "_order" => [ "first_name.not_contains", "age.not_contains", "birth_dt.not_contains", ],
+        "first_name.not_contains" => "s",
+        "age.not_contains" => "3",
+        "birth_dt.not_contains" => "1962",
+    },["first_name"]);
+is($sql, $expect_sql, "_mk_select_sql(): param.contains");
+&check_select($sql,0);
+$sql = $rep->_mk_select_sql("test_person",{
+        "_order" => [ "first_name", "age", "birth_dt", ],
+        "first_name" => "!~s",
+        "age" => "!~3",
+        "birth_dt" => "!~1962",
+    },["first_name"]);
+is($sql, $expect_sql, "_mk_select_sql(): param.not_contains (inferred)");
+&check_select($sql,0);
+
+$expect_sql = <<EOF;
+select
+   first_name
+from test_person
+where first_name like '%s%e_'
   and age like '%3'
-  and birth_dt like '1962%'
+  and birth_dt like '1962\\_%'
 EOF
 $sql = $rep->_mk_select_sql("test_person",{
         "_order" => [ "first_name.matches", "age.matches", "birth_dt.matches", ],
-        "first_name.matches" => "*s*",
+        "first_name.matches" => "*s*e?",
         "age.matches" => "*3",
-        "birth_dt.matches" => "1962*",
+        "birth_dt.matches" => "1962_*",
     },["first_name"]);
 is($sql, $expect_sql, "_mk_select_sql(): param.matches");
 &check_select($sql,0);
+$sql = $rep->_mk_select_sql("test_person",{
+        "_order" => [ "first_name", "age", "birth_dt", ],
+        "first_name" => "*s*e?",
+        "age" => "*3",
+        "birth_dt" => "1962_*",
+    },["first_name"]);
+is($sql, $expect_sql, "_mk_select_sql(): param.matches (inferred)");
+&check_select($sql,0);
+
+$expect_sql = <<EOF;
+select
+   first_name
+from test_person
+where first_name not like '%s%'
+  and age not like '%3'
+  and birth_dt not like '1962%'
+EOF
+$sql = $rep->_mk_select_sql("test_person",{
+        "_order" => [ "first_name.not_matches", "age.not_matches", "birth_dt.not_matches", ],
+        "first_name.not_matches" => "*s*",
+        "age.not_matches" => "*3",
+        "birth_dt.not_matches" => "1962*",
+    },["first_name"]);
+is($sql, $expect_sql, "_mk_select_sql(): param.not_matches");
+&check_select($sql,0);
+
+# this doesn't work yet, but that's ok
+#$sql = $rep->_mk_select_sql("test_person",{
+#        "_order" => [ "first_name", "age", "birth_dt", ],
+#        "first_name" => "!*s*",
+#        "age" => "!*3",
+#        "birth_dt" => "!1962*",
+#    },["first_name"]);
+#is($sql, $expect_sql, "_mk_select_sql(): param.not_matches (inferred)");
+#&check_select($sql,0);
 
 $expect_sql = <<EOF;
 select
@@ -489,6 +565,76 @@ $sql = $rep->_mk_select_sql("test_person",
                             {"age.verbatim" => "age in (14,15,16,17,18)"},
                             ["first_name","last_name","city","state","age"]);
 is($sql, $expect_sql, "_mk_select_sql(): verbatim");
+&check_select($sql,0);
+
+###########################################################################
+# NULL CONDITIONS (AND "IN")
+###########################################################################
+
+$expect_sql = <<EOF;
+select
+   gender
+from test_person
+where age is null
+EOF
+$sql = $rep->_mk_select_sql("test_person", { age => "NULL", }, ["gender"]);
+is($sql, $expect_sql, "_mk_select_sql(): is null (by 'NULL')");
+&check_select($sql,0);
+$sql = $rep->_mk_select_sql("test_person", { age => undef, }, ["gender"]);
+is($sql, $expect_sql, "_mk_select_sql(): is null (by undef)");
+&check_select($sql,0);
+
+$expect_sql = <<EOF;
+select
+   gender
+from test_person
+where age is not null
+EOF
+$sql = $rep->_mk_select_sql("test_person", { age => "!NULL", }, ["gender"]);
+is($sql, $expect_sql, "_mk_select_sql(): is not null (by '!NULL')");
+&check_select($sql,0);
+$sql = $rep->_mk_select_sql("test_person", { "age.ne" => undef, }, ["gender"]);
+is($sql, $expect_sql, "_mk_select_sql(): is not null (by .ne undef)");
+&check_select($sql,0);
+
+$expect_sql = <<EOF;
+select
+   gender
+from test_person
+where first_name is not null
+EOF
+$sql = $rep->_mk_select_sql("test_person", { first_name => "!NULL", }, ["gender"]);
+is($sql, $expect_sql, "_mk_select_sql(): is not null (by '!NULL')");
+&check_select($sql,0);
+$sql = $rep->_mk_select_sql("test_person", { "first_name.ne" => undef, }, ["gender"]);
+is($sql, $expect_sql, "_mk_select_sql(): is not null (by .ne undef)");
+&check_select($sql,0);
+
+$expect_sql = <<EOF;
+select
+   gender
+from test_person
+where (first_name not in ('stephen','keith') and first_name is not null)
+EOF
+$sql = $rep->_mk_select_sql("test_person", { first_name => "!stephen,keith,NULL", }, ["gender"]);
+is($sql, $expect_sql, "_mk_select_sql(): not in and not null (by '!stephen,keith,NULL')");
+&check_select($sql,0);
+$sql = $rep->_mk_select_sql("test_person", { "first_name.not_in" => "stephen,keith,NULL", }, ["gender"]);
+is($sql, $expect_sql, "_mk_select_sql(): is not null (by .not_in 'stephen,keith,NULL')");
+&check_select($sql,0);
+exit(0);
+
+$expect_sql = <<EOF;
+select
+   gender
+from test_person
+where first_name is not null
+EOF
+$sql = $rep->_mk_select_sql("test_person", { age => "!NULL", }, ["gender"]);
+is($sql, $expect_sql, "_mk_select_sql(): is not null (by '!NULL')");
+&check_select($sql,0);
+$sql = $rep->_mk_select_sql("test_person", { "age.ne" => undef, }, ["gender"]);
+is($sql, $expect_sql, "_mk_select_sql(): is not null (by .ne undef)");
 &check_select($sql,0);
 
 $expect_sql = <<EOF;
@@ -590,7 +736,7 @@ EOF
 $sql = $rep->_mk_select_sql("test_person",
                             {"age" => "ALL"},
                             ["first_name","last_name"]);
-is($sql, $expect_sql, "_mk_select_sql(): explicit ALL");
+is($sql, $expect_sql, "_mk_select_sql(): explicit ALL adds nothing to the where clause");
 &check_select($sql,0);
 
 $expect_sql = <<EOF;
@@ -604,6 +750,24 @@ $sql = $rep->_mk_select_sql("test_person",
                             {distinct => 1});
 is($sql, $expect_sql, "_mk_select_sql(): distinct");
 &check_select($sql,0);
+
+###########################################################################
+# NEW REPOPS CONDITIONS
+###########################################################################
+
+$expect_sql = <<EOF;
+select
+   gender
+from test_person
+where age is null
+EOF
+$sql = $rep->_mk_select_sql("test_person", { age => "NULL", }, ["gender"]);
+is($sql, $expect_sql, "_mk_select_sql(): is null (by 'NULL')");
+&check_select($sql,0);
+$sql = $rep->_mk_select_sql("test_person", { age => undef, }, ["gender"]);
+is($sql, $expect_sql, "_mk_select_sql(): is null (by undef)");
+&check_select($sql,0);
+exit(0);   # XXX REMOVE EXIT HERE XXX
 
 ###########################################################################
 # LITERAL EXPRESSIONS

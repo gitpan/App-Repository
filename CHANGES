@@ -2,6 +2,21 @@
 # CHANGE LOG
 #########################################
 
+0.963
+ x add support for qualified classes on a single table (i.e. get_object("person",...)
+   may return an App::RepositoryObject::Man or an App::RepositoryObject::Woman depending
+   on the value in the "gender" field)
+ x add not_in, not_contains, and not_matches operators
+ x add better implied operations to value-side of params (=, !, !=, >, >=, <=, ~, =~)
+ x _shutdown_unshareable_resources()
+ x substitute() on joincriteria
+ x added automatic timings on all debug_sql
+ x added explain_sql
+ x added support for dbsocket option in App::Repository::MySQL
+
+0.962
+ ???
+
 0.96
  x test suites are driven by app.conf (App::Options) (dbdriver/dbhost/dbname/dbuser/dbpass)
    (and they succeed trivially when no app.conf is set up)

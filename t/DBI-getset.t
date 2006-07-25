@@ -80,7 +80,7 @@ EOF
     $dbh->do("insert into test_person (person_id,age,first_name,gender,state) values (3, 6,'maryalice','F','GA')");
     $dbh->do("insert into test_person (person_id,age,first_name,gender,state) values (4, 3,'paul',     'M','GA')");
     $dbh->do("insert into test_person (person_id,age,first_name,gender,state) values (5, 1,'christine','F','GA')");
-    $dbh->do("insert into test_person (person_id,age,first_name,gender,state) values (6,45,'tim',      'M','GA')");
+    $dbh->do("insert into test_person (person_id,age,first_name,gender,state) values (6,45,'tim',      'M','FL')");
     $dbh->do("insert into test_person (person_id,age,first_name,gender,state) values (7,39,'keith',    'M','GA')");
 }
 
@@ -97,7 +97,7 @@ my $rows = [
     [ 3,  6, "maryalice", "F", "GA", ],
     [ 4,  3, "paul",      "M", "GA", ],
     [ 5,  1, "christine", "F", "GA", ],
-    [ 6, 45, "tim",       "M", "GA", ],
+    [ 6, 45, "tim",       "M", "FL", ],
     [ 7, 39, "keith",     "M", "GA", ],
 ];
 
@@ -151,7 +151,7 @@ is($hash->{gender},     "M",       "get_hash(1) gender");
 is($hash->{state},      "GA",      "get_hash(1) state");
 
 ok($rep->set("test_person", {first_name => "steve"}, {person_id => 1, age => 41}), "set(table,\$params,\%hash)");
-ok($rep->set("test_person", {person_id => 8, age => 37, first_name => "nick", gender => "M", state => "NY"},
+ok($rep->set("test_person", {person_id => 8, age => 37, first_name => "nick", gender => "M", state => undef},
     undef, undef, {create=>1}),
     "set(table,\$params,\%hash) : insert");
 is($rep->set("test_person", {gender => "F", age => 41}), 0,
@@ -174,7 +174,7 @@ is($hash->{person_id},  8,         "get_hashes()->[n] person_id");
 is($hash->{age},        37,        "get_hashes()->[n] age");
 is($hash->{first_name}, "nick",    "get_hashes()->[n] first_name");
 is($hash->{gender},     "M",       "get_hashes()->[n] gender");
-is($hash->{state},      "NY",      "get_hashes()->[n] state");
+is($hash->{state},      undef,     "get_hashes()->[n] state");
 
 eval {
     $nrows = $rep->set("test_person", undef, "gender", "M");
@@ -182,6 +182,53 @@ eval {
 };
 ok($@, "set() with undef params");
 
+####################################################################
+# Exercise the special implied where conditions
+####################################################################
+#my $rows2 = $rep->get_rows("test_person", {}, ["person_id","age","first_name","gender","state"]);
+#foreach my $row (@$rows2) {
+#    print "ROW: [", join("|", map { defined $_ ? $_ : "undef" } @$row), "]\n";
+#}
+
+$hashes = $rep->get_hashes("test_person", {first_name => "!steve,joe,nick"});
+is($#$hashes+1, 6, "get_hashes(!steve,joe,nick)");
+$hashes = $rep->get_hashes("test_person", {first_name => "steve,joe,nick"});
+is($#$hashes+1, 2, "get_hashes(steve,joe,nick)");
+$hashes = $rep->get_hashes("test_person", {first_name => "=steve,joe,nick"});
+is($#$hashes+1, 2, "get_hashes(=steve,joe,nick)");
+$hashes = $rep->get_hashes("test_person", {first_name => "==steve,joe,nick"});
+is($#$hashes+1, 0, "get_hashes(==steve,joe,nick)");
+$hashes = $rep->get_hashes("test_person", {state => "GA"});
+is($#$hashes+1, 5, "get_hashes(GA)");
+$hashes = $rep->get_hashes("test_person", {state => "GA,NULL"});
+is($#$hashes+1, 6, "get_hashes(GA,NULL)");
+$hashes = $rep->get_hashes("test_person", {state => "!GA,NULL"});
+is($#$hashes+1, 2, "get_hashes(!GA,NULL)");
+$hashes = $rep->get_hashes("test_person", {state => "GA,CA"});
+is($#$hashes+1, 6, "get_hashes(GA,CA)");
+$hashes = $rep->get_hashes("test_person", {state => "!GA,CA"});
+is($#$hashes+1, 1, "get_hashes(!GA,CA)");
+$hashes = $rep->get_hashes("test_person", {"state.not_in" => ["GA","CA"]});
+is($#$hashes+1, 1, "get_hashes not_in [GA,CA]");
+$hashes = $rep->get_hashes("test_person", {"state.not_in" => "GA,CA"});
+is($#$hashes+1, 1, "get_hashes not_in (GA,CA)");
+$hashes = $rep->get_hashes("test_person", {"state.in" => "!GA,CA"});
+is($#$hashes+1, 1, "get_hashes in (!GA,CA)");
+$hashes = $rep->get_hashes("test_person", {"state.eq" => "!GA,CA"});
+is($#$hashes+1, 0, "get_hashes eq (!GA,CA)");
+$hashes = $rep->get_hashes("test_person", {"state.contains" => "A"});
+is($#$hashes+1, 6, "get_hashes contains (A)");
+$hashes = $rep->get_hashes("test_person", {"state.not_contains" => "A"});
+is($#$hashes+1, 1, "get_hashes not_contains (A)");
+
+$hashes = $rep->get_hashes("test_person", {"state.matches" => "?A"});
+is($#$hashes+1, 6, "get_hashes matches (?A)");
+$hashes = $rep->get_hashes("test_person", {"state" => "?A"});
+is($#$hashes+1, 6, "get_hashes (?A)");
+$hashes = $rep->get_hashes("test_person", {"state.not_matches" => "?A"});
+is($#$hashes+1, 1, "get_hashes not_matches (?A)");
+
+#print $rep->{sql};
 exit(0);
 #####################################################################
 #  $rep->set_rows($table, undef,    \@cols, $rows, \%options);

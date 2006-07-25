@@ -1,5 +1,5 @@
 ######################################################################
-## File: $Id: TODO 3559 2006-03-01 03:36:15Z spadkins $
+## File: $Id: TODO 6704 2006-07-25 01:54:29Z spadkins $
 ######################################################################
 
 To get to Version 1.0
@@ -11,14 +11,10 @@ To get to Version 1.0
  o get it to run against Oracle
 
 Other stuff
- o get it to run against Oracle
  o caching rows by key
  o caching row-sets by set-key
- o DBI    - refactored/unified params/cols/values handling
+ o DBI      - refactored/unified params/cols/values handling
             - arbitrarily complex where clauses
-            - clear separation between "eq", "in" and implied ops
-            - add "not_in" operator
-            - add implied operators from the value (i.e. ">3", "!2,3")
  o auto-history (audit trail)
 
  o DBI    - auto-reconnect on all operations

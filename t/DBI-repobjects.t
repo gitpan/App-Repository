@@ -12,6 +12,7 @@ use App::Options (
     },
 );
 
+
 use Test::More qw(no_plan);
 use lib "../App-Context/lib";
 use lib "../../App-Context/lib";
@@ -20,6 +21,18 @@ use lib "../lib";
 
 use App;
 use App::Repository;
+use App::RepositoryObject;
+
+package App::RepositoryObject::Man;
+@ISA = ("App::RepositoryObject");
+$VERSION = 0.01;
+
+package App::RepositoryObject::Woman;
+@ISA = ("App::RepositoryObject");
+$VERSION = 0.01;
+
+package main;
+
 use strict;
 
 if (!$App::options{dbuser}) {
@@ -40,6 +53,10 @@ my $context = App->context(
                 dbpass => $App::options{dbpass},
                 table => {
                     test_person => {
+                        class => [
+                            [ "gender", "F", "App::RepositoryObject::Woman" ],
+                            # [ undef,  undef, "App::RepositoryObject::Man" ],  # otherwise Man
+                        ],
                         primary_key => ["person_id"],
                     },
                 },
@@ -108,6 +125,7 @@ my ($row, $nrows);
 #####################################################################
 {
     my $obj = $rep->get_object("test_person", 1);
+    isa_ok($obj, "App::RepositoryObject", "stephen");
     $first_name = $obj->get("first_name");
     is($first_name, "stephen", "get() first_name [$first_name]");
     is($obj->set("first_name", "steve"),1,"set() first name [steve]");
@@ -129,6 +147,7 @@ my ($row, $nrows);
 
 {
     my $obj = $rep->get_object("test_person", 2, []);
+    isa_ok($obj, "App::RepositoryObject", "susan");
     ok($obj->set(["first_name","age"], ["sue",38]), "set() 2 values");
     ($first_name, $age) = $obj->get(["first_name","age"]);
     is($first_name, "sue", "get() 2 values (checking 1 of 2)");
@@ -136,8 +155,15 @@ my ($row, $nrows);
 }
 
 {
+    my $obj = $rep->get_object("test_person", 2);
+    isa_ok($obj, "App::RepositoryObject::Woman", "susan");
+}
+
+{
     my $objs = $rep->get_objects("test_person", {}, undef, {order_by => "person_id"});
     is($objs->[0]{_key}, 1, "get_objects() automatically set the _key");
+    isa_ok($objs->[0], "App::RepositoryObject", "by get_objects(), stephen");
+    isa_ok($objs->[1], "App::RepositoryObject::Woman", "by get_objects(), susan");
 }
 
 {
@@ -169,10 +195,11 @@ my ($row, $nrows);
     is($obj3->{first_name},$obj->{first_name}, "new.first_name seems ok");
     is($obj3->{age},$obj->{age}, "new.age seems ok");
     is($obj3->{_key},$obj->{_key}, "new._key seems ok");
-    my $obj4 = $rep->new_object("test_person",{first_name => "christine"});
+    my $obj4 = $rep->new_object("test_person",{first_name => "christine", gender => "F"});
     is($obj4->{first_name},"christine", "new.first_name (2) seems ok");
     is($obj4->{_key},8, "new._key is ok");
     is($obj4->{person_id},8, "new.person_id is ok");
+    isa_ok($obj4, "App::RepositoryObject::Woman", "by new_object(), christine");
 }
 
 {
