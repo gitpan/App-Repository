@@ -1,21 +1,27 @@
 
 ######################################################################
-## File: $Id: Makefile.PL 6704 2006-07-25 01:54:29Z spadkins $
+## File: $Id: Makefile.PL 6849 2006-09-04 19:20:19Z spadkins $
 ######################################################################
 
 use ExtUtils::MakeMaker;
 # See lib/ExtUtils/MakeMaker.pm for details of how to influence
 # the contents of the Makefile that is written.
 
+my @programs = (
+    "bin/dbget",
+);
+
 %opts = (
     'NAME'        => 'App-Repository',
     'DISTNAME'    => 'App-Repository',
-    'VERSION'     => '0.963',
-    'PREREQ_PM'   => { #'App::Context' => 0,  # core services
-                       'DBI'          => 0,  # database access
+    'VERSION'     => '0.964',
+    'EXE_FILES'   => [ @programs ],
+    'PREREQ_PM'   => {
+                       'App::Options' => 0,  # core services
+                       'App::Context' => 0,  # core services
+                       'DBI'          => "0.01",  # database access
+                       'DBIx::Compat' => 0,       # database compatibility
                      },
-    'dist'        => {'COMPRESS'=>'gzip -9f', 'SUFFIX' => 'gz',
-                      'ZIP'=>'/usr/bin/zip','ZIPFLAGS'=>'-rl'},
 );
 
 ######################################################################

@@ -1,11 +1,14 @@
 # http://module-build.sourceforge.net/META-spec.html
 #XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
 name:         App-Repository
-version:      0.963
+version:      0.964
 version_from: 
 installdirs:  site
 requires:
-    DBI:                           0
+    App::Context:                  0
+    App::Options:                  0
+    DBI:                           0.01
+    DBIx::Compat:                  0
 
 distribution_type: module
 generated_by: ExtUtils::MakeMaker version 6.30

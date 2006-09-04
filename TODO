@@ -1,5 +1,5 @@
 ######################################################################
-## File: $Id: TODO 6704 2006-07-25 01:54:29Z spadkins $
+## File: $Id: TODO 6848 2006-09-04 19:00:52Z spadkins $
 ######################################################################
 
 To get to Version 1.0
@@ -9,6 +9,8 @@ To get to Version 1.0
  o go over the documentation which is terrible and has been completely neglected
  o ensure it runs (and tests cleanly!) on MSWin32
  o get it to run against Oracle
+ o create a metadata-producer utility
+ o remove dependence on DBIx::Compat (remove from Makefile.PL)
 
 Other stuff
  o caching rows by key

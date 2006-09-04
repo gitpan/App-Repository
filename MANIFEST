@@ -11,6 +11,7 @@ lib/App/RepositoryObject.pm
 lib/App/SessionObject/RepositoryObjectSet.pm
 lib/App/SessionObject/RepositoryObjectDomain.pm
 lib/App/ValueDomain/Repository.pm
+bin/dbget
 t/DBI-connect.t
 t/DBI-delete.t
 t/DBI-getset.t
