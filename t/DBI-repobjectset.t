@@ -133,9 +133,9 @@ my ($row, $nrows);
     $objset->set_params({});
     $objects = $objset->get_objects("F",["gender"]);
     ok($#$objects == 2, "got 3 female objects");
-    $objects = $objset->get_objects("M");
+    $objects = $objset->get_objects("M","gender");
     ok($#$objects == 3, "got 4 male objects");
-    $index = $objset->get_index();
+    $index = $objset->get_index("gender");
     ok(ref($index) eq "HASH", "got a hashref for an index");
     ok(defined $index->{M}, "M part of index found");
     ok(defined $index->{F}, "F part of index found");
@@ -150,7 +150,7 @@ my ($row, $nrows);
     $objects = $objset->get_objects();
     ok($#$objects == 3, "got 4 objects");
     $objset->get_unique_index(["first_name"]);
-    my $object = $objset->get_object("stephen");
+    my $object = $objset->get_object("stephen","first_name");
     ok($object->{age} == 39, "got stephen object (age 39)");
 
     # max_age

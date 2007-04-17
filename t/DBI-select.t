@@ -490,6 +490,15 @@ $sql = $rep->_mk_select_sql("test_person",{
 is($sql, $expect_sql, "_mk_select_sql(): param.matches (inferred)");
 &check_select($sql,0);
 
+$sql = $rep->_mk_select_sql("test_person",{
+        "_order" => [ "first_name", "age", "birth_dt", ],
+        "first_name" => "*s*e?",
+        "age" => "*3",
+        "birth_dt" => "1962_*",
+    },["first_name"]);
+is($sql, $expect_sql, "_mk_select_sql(): param.matches (inferred)");
+&check_select($sql,0);
+
 $expect_sql = <<EOF;
 select
    first_name
@@ -622,6 +631,23 @@ is($sql, $expect_sql, "_mk_select_sql(): not in and not null (by '!stephen,keith
 $sql = $rep->_mk_select_sql("test_person", { "first_name.not_in" => "stephen,keith,NULL", }, ["gender"]);
 is($sql, $expect_sql, "_mk_select_sql(): is not null (by .not_in 'stephen,keith,NULL')");
 &check_select($sql,0);
+
+$expect_sql = <<'EOF';
+select
+   first_name
+from test_person
+where first_name like '%\'%'
+  and birth_dt like '%\\\'_'
+EOF
+#print "[$expect_sql]\n";
+$sql = $rep->_mk_select_sql("test_person",{
+        "_order" => [ "first_name.contains", "birth_dt.matches", ],
+        "first_name.contains" => "'",
+        "birth_dt.matches" => "*\\'?",
+    },["first_name"]);
+is($sql, $expect_sql, "_mk_select_sql(): param.contains (proper quoting of ' and \\' required)");
+&check_select($sql,0);
+
 exit(0);
 
 $expect_sql = <<EOF;
@@ -866,7 +892,8 @@ select
 from
    test_person t1
 EOF
-#$App::trace_subs = 1;
+#$App::trace = 1;
+#$App::trace = 1;
 &test_get_rows($expect_sql,0,"_mk_select_joined_sql(): 1 col, no params","test_person",{},"age");
 
 exit(0);

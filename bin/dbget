@@ -3,7 +3,7 @@
 use Date::Format;
 
 use App::Options (
-    options => [ qw(dbhost dbname dbuser dbpass repository table params columns headings compact verbose) ],
+    options => [ qw(dbhost dbname dbuser dbpass repository table params columns headings compact decimals subtotal_columns totals verbose) ],
     option => {
         repository => {
             default => "default",
@@ -25,6 +25,16 @@ use App::Options (
         },
         compact => {
             description => "Trim titles to make compact table",
+        },
+        decimals => {
+            description => "Number of decimal places to print on floats",
+            default => "2",
+        },
+        subtotal_columns => {
+            description => "Print sub-totals at the end",
+        },
+        totals => {
+            description => "Print totals at the end",
         },
         verbose => {
             default => 1,
@@ -52,16 +62,33 @@ $| = 1;  # autoflush stdout
     my $params   = { split(/[=>\|]+/, $App::options{params}) };
     my $headings = $App::options{headings} ? [ split(/,/, $App::options{headings}) ] : [];
     my $verbose  = $App::options{verbose};
-    my $rows     = $db->get_rows($table, $params, $columns);
+    my $rows     = $db->get_rows($table, $params, $columns, {extend_columns => 1});
+    my ($subtotal_rows, $total_rows);
+    if ($App::options{subtotal_columns}) {
+        my $subtotal_columns = [ split(/,/, $App::options{subtotal_columns}) ];
+        $subtotal_rows = $db->summarize_rows($table, $rows, $columns, $subtotal_columns);
+    }
+    if ($App::options{totals}) {
+        $total_rows = $db->summarize_rows($table, $rows, $columns);
+    }
+    if ($subtotal_rows) {
+        push(@$rows, @$subtotal_rows);
+    }
+    if ($total_rows) {
+        push(@$rows, @$total_rows);
+    }
     my $formats  = [];
     &print_table($rows, $columns, $formats, { compact => $App::options{compact}, headings => $headings });
 }
 
 sub print_table {
+    &App::sub_entry if ($App::trace);
     my ($rows, $columns, $formats, $options) = @_;
     my ($row, $r, $c, $elem, $format, $len, $f, $heading);
     my (@autoformat);
     my $headings = $options->{headings};
+
+    # compute the number of columns as the max columns of any row
     my $max_columns = 0;
     for ($r = 0; $r <= $#$rows; $r++) {
         $row = $rows->[$r];
@@ -69,16 +96,21 @@ sub print_table {
             $max_columns = $#$row + 1;
         }
     }
+
+    # compute automatic sprintf formats
     for ($c = 0; $c < $max_columns; $c++) {
+
         if (! defined $autoformat[$c]) {
             $autoformat[$c] = {
                 max_length => 0,
-                type => 0,        # 0=string, 1=integer, 2=float
+                type => 2,        # 0=string, 1=float, 2=integer
                 min => undef,
                 max => undef,
             };
         }
         $f = $autoformat[$c];
+
+        # set the length of the column by the length of its heading
         $heading = ($headings && $headings->[$c]) ? $headings->[$c] : "";
         if ($heading) { 
             $len = length($heading);
@@ -92,14 +124,15 @@ sub print_table {
                 $f->{max_length} = $len;
             }
         }
+
         for ($r = 0; $r <= $#$rows; $r++) {
             $row = $rows->[$r];
             if ($c <= $#$row && defined $row->[$c]) {
                 $elem = $row->[$c];
                 $len = length($elem);
-                if ($elem =~ /^-?[0-9]*\.[0-9]+$/) {
-                    $len = length(sprintf("%.2f",$elem));
-                    $f->{type} = 2;
+                if ($elem =~ /^-?[0-9]*\.[0-9]+$/) {  # float
+                    $len = length(sprintf("%.$App::options{decimals}f",$elem));
+                    $f->{type} = 1 if ($f->{type} > 1);
                     if (!defined $f->{min} || $elem < $f->{min}) {
                         $f->{min} = $elem;
                     }
@@ -107,14 +140,16 @@ sub print_table {
                         $f->{max} = $elem;
                     }
                 }
-                elsif ($elem =~ /^-?[0-9]+$/) {
-                    $f->{type} = 1 if ($f->{type} < 1);
+                elsif ($elem =~ /^-?[0-9]+$/) { # integer
                     if (!defined $f->{min} || $elem < $f->{min}) {
                         $f->{min} = $elem;
                     }
                     if (!defined $f->{max} || $elem < $f->{max}) {
                         $f->{max} = $elem;
                     }
+                }
+                else {
+                    $f->{type} = 0;
                 }
                 $f->{max_length} = $len if ($len > $f->{max_length});
             }
@@ -137,16 +172,18 @@ sub print_table {
         }
         print "\n";
     }
+    &App::sub_exit() if ($App::trace);
 }
 
 sub determine_sprintf_fmt {
+    &App::sub_entry if ($App::trace);
     my ($f) = @_;
     my ($width, $int_len, $fract_len);
-    if ($f->{type} == 2) {     # float
+    if ($f->{type} == 1) {     # float
         $f->{title_fmt} = "%$f->{max_length}.$f->{max_length}s";
-        $f->{fmt} = "%$f->{max_length}.2f";
+        $f->{fmt} = "%$f->{max_length}.$App::options{decimals}f";
     }
-    elsif ($f->{type} == 1) {  # integer
+    elsif ($f->{type} == 2) {  # integer
         $f->{title_fmt} = "%$f->{max_length}.$f->{max_length}s";
         $f->{fmt} = "%$f->{max_length}d";
     }
@@ -154,6 +191,7 @@ sub determine_sprintf_fmt {
         $f->{title_fmt} = "%-$f->{max_length}.$f->{max_length}s";
         $f->{fmt} = "%-$f->{max_length}s";
     }
+    &App::sub_exit($f->{fmt}) if ($App::trace);
 }
 
 exit (0);

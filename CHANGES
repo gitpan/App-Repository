@@ -2,6 +2,23 @@
 # CHANGE LOG
 #########################################
 
+0.965
+ x can now configure multiple databases (App::Repository::DBI) from app.conf (xyz.dbhost, xyz.dbname, ... for rep "xyz")
+ x full redirection to other tables or other tables in other repositories is done
+ x added dbsocket as a parameter which App::Repository::DBI automatically picks up from app.conf
+ x added dbioptions to the list of things App::Repository::MySQL takes into account in building its dsn
+ x use $dbh->quote() to quote values instead of doing it half-way correctly
+ x add App::Repository::summarize_rows() (with extended summaries, ros->get_summary(), ros->get_ext_summary())
+ x add bin/dbget --totals and --subtotal_columns options
+ x fix App::RepositoryObjectSet->set_params() to not clear cache if %$params are identical
+ x fix App::RepositoryObjectDomain->get_object_set() to call $object_set->set_params() 
+   instead of update_params() if a %$params subset has not been explicitly defined.
+ x added an implementation of insert_rows() for App::Repository::MySQL which uses multiple-row inserts
+ x worked on import_rows() to use insert_rows() if ($options->{import_method} eq "insert")
+ x enhance summarize_rows() to do extended summaries (count, distinct, min, max, average, mode, median, stddev)
+ x add call_procedure() method
+ x finalized transaction support with begin_work(), commit(), rollback() (added t/DBI-transaction.t test case)
+
 0.964
  x add bin/dbget
  x add default params and params that don't relate to column names

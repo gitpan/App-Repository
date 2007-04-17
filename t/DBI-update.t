@@ -138,6 +138,15 @@ $sql = $rep->_mk_update_sql("test_person",4,["age","state"],{age => 6, state => 
 is($sql, $expect_sql, "_mk_update_sql(): 2 cols, by key, row is a hashref");
 &check_exec($sql,1);
 
+$expect_sql = <<'EOF';
+update test_person set
+   first_name = '%@$\\\''
+where person_id = 4
+EOF
+$sql = $rep->_mk_update_sql("test_person",4,["first_name"],['%@$\\\'']);
+is($sql, $expect_sql, "_mk_update_sql(): proper quoting for \\'");
+&check_exec($sql,1);
+
 # This doesn't work yet
 #$expect_sql = <<EOF;
 #update test_person set

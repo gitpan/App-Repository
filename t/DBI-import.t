@@ -46,12 +46,17 @@ my $context = App->context(
             },
         },
     },
+    debug_sql => $App::options{debug_sql},
+    trace => $App::options{trace},
 );
+
+# my $options= $context->{options};
+# print "OPTIONS: {", join("|", %$options), "}\n";
 
 my $db = $context->repository();
 
-$App::trace = 0;
-$App::trace = 0;
+my $t_dir = "t";
+$t_dir = "." if (! -d $t_dir);
 
 {
     #cheating... I know its a DBI, but I have to set up the test somehow
@@ -81,12 +86,24 @@ EOF
 }
 
 {
-    ok($db->_insert_row("test_person", ["person_id","age","first_name","gender","state"],
-        [1,39,"stephen",  "M","GA"]),
-        "insert row (primary key included)");
-    ok($db->_insert_row("test_person", ["age","first_name","gender","state"],
-        [37,"susan",    "F","GA"]),
-        "insert row (primary key excluded, auto_increment)");
+    is($db->insert_rows("test_person", ["person_id","age","first_name","gender","state"],
+        [[1,39,"stephen",  "M","GA"],
+         [2,37,"susan",    "F","GA"]]),2,
+        "insert rows (2 rows, primary key included)");
+    is($db->get("test_person",1,"first_name"), "stephen", "1st row got in [stephen]");
+    is($db->get("test_person",2,"first_name"), "susan",   "2nd row got in [susan]");
+
+    is($db->import_rows("test_person", ["age","first_name","gender","state"],
+        "$t_dir/files/DBI-import.01.dat", {field_sep => "|", import_method => "insert"}),
+        120,
+        "import from file [files/DBI-import.01.dat]");
+    is($db->get("test_person",3,"first_name"), "mike",    "3rd row got in [mike]");
+    is($db->get("test_person",4,"first_name"), "mary",    "4th row got in [mary]");
+    is($db->get("test_person",5,"first_name"), "maxwell", "5th row got in [maxwell]");
+    is($db->get("test_person",6,"first_name"), "myrtle",  "6th row got in [myrtle]");
+}
+__END__
+
     ok($db->_insert_row("test_person", ["person_id","age","first_name","gender","state"],
         [undef, 6,"maryalice","F","GA"]),
         "insert row (primary key included, null)");
@@ -156,101 +173,6 @@ EOF
         }),
         "insert \\ and ' and \\' seems to work");
     is($db->get("test_person",11,"first_name"),'%@$\\\'', "yep. first_name worked.");
-
-    my $new_hashes =
-       [{ age=>39, first_name=>"stephen", gender=>"M", state=>"GA", foo=>"bar"},
-        { age=>37, first_name=>"susan", gender=>"F", state=>"GA", foo=>"bar"},
-        { age=>6, first_name=>"maryalice", gender=>"F", state=>"GA", foo=>"bar"},
-        { age=>3, first_name=>"paul", gender=>"M", state=>"GA", foo=>"bar"},
-        { age=>1, first_name=>"christine", gender=>"F", state=>"GA", foo=>"bar"},
-        { age=>45, first_name=>"tim", gender=>"M", state=>"GA", foo=>"bar"},
-        { age=>39, first_name=>"keith", gender=>"M", state=>"GA", foo=>"bar"},];
-
-    my $new_rows =
-       [[39,"stephen",  "M","GA"],
-        [37,"susan",    "F","GA"],
-        [6,"maryalice", "F","GA"],
-        [3,"paul",      "M","GA"],
-        [1,"christine", "F","GA"],
-        [45,"tim",      "M","GA"],
-        [39,"keith",    "M","GA"],];
-
-    my $dup_rows =
-       [[1, 39,"stephen",  "M","GA"],
-        [2, 37,"susan",    "F","GA"],
-        [3, 6,"maryalice", "F","GA"],
-        [4, 3,"paul",      "M","GA"],
-        [5, 1,"christine", "F","GA"],
-        [6, 45,"tim",      "M","GA"],
-        [7, 39,"keith",    "M","GA"],];
-
-    my ($expect_sql, $sql);
-$expect_sql = <<EOF;
-insert into test_person
-  (age, first_name, gender, state)
-values
-  (39, 'stephen', 'M', 'GA'),
-  (37, 'susan', 'F', 'GA'),
-  (6, 'maryalice', 'F', 'GA'),
-  (3, 'paul', 'M', 'GA'),
-  (1, 'christine', 'F', 'GA'),
-  (45, 'tim', 'M', 'GA'),
-  (39, 'keith', 'M', 'GA')
-EOF
-$sql = $db->_mk_insert_rows_sql("test_person", ["age","first_name","gender","state"], $new_rows);
-is($sql, $expect_sql, "_mk_insert_rows_sql(): 7 rows, bulk insert");
-$sql = $db->_mk_insert_rows_sql("test_person", ["age","first_name","gender","state"], $new_hashes);
-is($sql, $expect_sql, "_mk_insert_rows_sql(): 7 rows, bulk insert (from hashes)");
-
-$expect_sql = <<EOF;
-replace into test_person
-  (age, first_name, gender, state)
-values
-  (39, 'stephen', 'M', 'GA'),
-  (37, 'susan', 'F', 'GA'),
-  (6, 'maryalice', 'F', 'GA'),
-  (3, 'paul', 'M', 'GA'),
-  (1, 'christine', 'F', 'GA'),
-  (45, 'tim', 'M', 'GA'),
-  (39, 'keith', 'M', 'GA')
-EOF
-$sql = $db->_mk_insert_rows_sql("test_person", ["age","first_name","gender","state"], $new_rows, { replace => 1 });
-is($sql, $expect_sql, "_mk_insert_rows_sql(): 7 rows, bulk replace");
-
-$expect_sql = <<EOF;
-insert into test_person
-  (person_id, age, first_name, gender, state)
-values
-  (1, 39, 'stephen', 'M', 'GA'),
-  (2, 37, 'susan', 'F', 'GA'),
-  (3, 6, 'maryalice', 'F', 'GA'),
-  (4, 3, 'paul', 'M', 'GA'),
-  (5, 1, 'christine', 'F', 'GA'),
-  (6, 45, 'tim', 'M', 'GA'),
-  (7, 39, 'keith', 'M', 'GA')
-on duplicate key update
-   person_id = values(person_id),
-   age = values(age),
-   first_name = values(first_name),
-   gender = values(gender),
-   state = values(state)
-EOF
-$sql = $db->_mk_insert_rows_sql("test_person", ["person_id", "age","first_name","gender","state"], $dup_rows, { update => 1 });
-is($sql, $expect_sql, "_mk_insert_rows_sql(): 7 rows, bulk insert/update");
-
-#######################################
-my ($nrows);
-$nrows = $db->insert_rows("test_person", ["age","first_name","gender","state"], $new_rows);
-is($nrows, 7, "insert_rows(): 7 rows, bulk insert");
-$nrows = $db->insert_rows("test_person", ["person_id","age","first_name","gender","state"], $dup_rows, { replace => 1 });
-is($nrows, 14, "insert_rows(): 7 rows (14 affected), bulk replace");
-$nrows = $db->insert_rows("test_person", ["person_id", "age","first_name","gender","state"], $dup_rows, { update => 1 });
-is($nrows, 14, "insert_rows(): 7 rows (14 affected), bulk insert/update");
-$nrows = $db->insert_rows("test_person", ["person_id","age","first_name","gender","state"], $dup_rows, { replace => 1, maxrows => 4 });
-is($nrows, 14, "insert_rows(): 7 rows (14 affected), bulk replace (4 at a time)");
-$nrows = $db->insert_rows("test_person", ["person_id", "age","first_name","gender","state"], $dup_rows, { update => 1, maxrows => 4 });
-is($nrows, 14, "insert_rows(): 7 rows (14 affected), bulk insert/update (4 at a time)");
-
 }
 
 exit 0;

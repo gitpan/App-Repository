@@ -15,10 +15,12 @@ bin/dbget
 t/DBI-connect.t
 t/DBI-delete.t
 t/DBI-getset.t
+t/DBI-import.t
 t/DBI-insert.t
 t/DBI-metadata.t
 t/DBI-repobjects.t
 t/DBI-repobjectset.t
 t/DBI-select.t
 t/DBI-update.t
+t/files/DBI-import.01.dat
 META.yml                                 Module meta-data (added by MakeMaker)
