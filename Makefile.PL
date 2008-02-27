@@ -1,6 +1,6 @@
 
 ######################################################################
-## File: $Id: Makefile.PL 9424 2007-04-17 12:19:58Z spadkins $
+## File: $Id: Makefile.PL 10842 2008-02-27 03:01:52Z spadkins $
 ######################################################################
 
 use ExtUtils::MakeMaker;
@@ -14,7 +14,7 @@ my @programs = (
 %opts = (
     'NAME'        => 'App-Repository',
     'DISTNAME'    => 'App-Repository',
-    'VERSION'     => '0.965',
+    'VERSION'     => '0.966',
     'EXE_FILES'   => [ @programs ],
     'PREREQ_PM'   => {
                        'App::Options' => 0,  # core services

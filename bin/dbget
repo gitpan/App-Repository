@@ -3,7 +3,8 @@
 use Date::Format;
 
 use App::Options (
-    options => [ qw(dbhost dbname dbuser dbpass repository table params columns headings compact decimals subtotal_columns totals verbose) ],
+    options => [ qw(dbhost dbname dbuser dbpass repository table params columns headings compact decimals subtotal_columns totals
+                    cache_skip cache_refresh verbose) ],
     option => {
         repository => {
             default => "default",
@@ -36,6 +37,12 @@ use App::Options (
         totals => {
             description => "Print totals at the end",
         },
+        cache_skip => {
+            description => "Skip any cached values for the table",
+        },
+        cache_refresh => {
+            description => "Skip any cached values for the table but save the results in the cache",
+        },
         verbose => {
             default => 1,
             description => "Verbose level",
@@ -62,7 +69,10 @@ $| = 1;  # autoflush stdout
     my $params   = { split(/[=>\|]+/, $App::options{params}) };
     my $headings = $App::options{headings} ? [ split(/,/, $App::options{headings}) ] : [];
     my $verbose  = $App::options{verbose};
-    my $rows     = $db->get_rows($table, $params, $columns, {extend_columns => 1});
+    my $get_options = { extend_columns => 1 };
+    $get_options->{cache_skip} = 1 if ($App::options{cache_skip});
+    $get_options->{cache_refresh} = 1 if ($App::options{cache_refresh});
+    my $rows     = $db->get_rows($table, $params, $columns, $get_options);
     my ($subtotal_rows, $total_rows);
     if ($App::options{subtotal_columns}) {
         my $subtotal_columns = [ split(/,/, $App::options{subtotal_columns}) ];

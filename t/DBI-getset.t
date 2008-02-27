@@ -41,6 +41,11 @@ my $context = App->context(
                 table => {
                     test_person => {
                         primary_key => ["person_id"],
+                        column => {
+                            years_older => {
+                                dbexpr => "age-{base_age:0}",
+                            },
+                        },
                     },
                 },
             },
@@ -229,6 +234,16 @@ $hashes = $rep->get_hashes("test_person", {"state.not_matches" => "?A"});
 is($#$hashes+1, 1, "get_hashes not_matches (?A)");
 
 #print $rep->{sql};
+
+#####################################################################
+# dbexpr with substitutions
+#####################################################################
+my ($years_older);
+$years_older = $rep->get("test_person", {person_id => 1}, "years_older");
+is($years_older, 41, "get() years_older [$years_older] base_age is undef");
+$years_older = $rep->get("test_person", {person_id => 1, base_age => 20}, "years_older");
+is($years_older, 21, "get() years_older [$years_older] base_age = 20");
+
 exit(0);
 #####################################################################
 #  $rep->set_rows($table, undef,    \@cols, $rows, \%options);

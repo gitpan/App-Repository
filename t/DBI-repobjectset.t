@@ -167,9 +167,93 @@ my ($row, $nrows);
     is($objects->[0]{age}, 40, "max_age: no refresh by overriding small max_age on objset with large max_age");
     $objects = $objset->get_objects();                # NOTE: we get the update.
     is($objects->[0]{age}, 41, "max_age: refresh with max_age on objset");
+
+    $rep->_disconnect();
+    my $hashes = [
+        { person_id => 1, age => 39, name => "stephen",   gender => "M", state => "GA", num_kids => 3, },
+        { person_id => 2, age => 37, name => "susan",     gender => "F", state => "GA", num_kids => 3, },
+        { person_id => 3, age =>  6, name => "maryalice", gender => "F", state => "GA", num_kids => 0, },
+        { person_id => 4, age =>  3, name => "paul",      gender => "M", state => "GA", num_kids => 0, },
+        { person_id => 5, age =>  1, name => "christine", gender => "F", state => "GA", num_kids => undef, },
+        { person_id => 6, age => 45, name => "tim",       gender => "M", state => "GA", num_kids => 2, },
+        { person_id => 7, age => 39, name => "keith",     gender => "M", state => "GA", num_kids => 4, },
+    ];
+    my $new_object_set  = $rep->create_temporary_object_set("test_person", {fee => 1, fie => 2, foe => "fum"}, undef, $hashes);
+    my $new_object_set2 = $rep->create_temporary_object_set("test_person", {fee => 1, fie => 2, foe => "fum"}, undef, $hashes);
+    is(ref($new_object_set), "App::SessionObject::RepositoryObjectSet", "Correct class (RepositoryObjectSet)");
+    ok($new_object_set->{temporary}, "new_object_set (temporary) has {temporary} attribute set");
+
+    #$App::trace = 1;
+
+    $new_object_set->{foo} = "bar";
+    ok(! defined $new_object_set2->{foo}, "new_object_set()s (temporary) don't share storage");
+    my $hashes2 = $new_object_set->get_objects();
+    is($hashes2, $hashes, "Got same exact reference to set of objects");
+    is($#$hashes2, $#$hashes, "Got same exact number of objects");
+    is($rep, $new_object_set->get_repository(), "Got same exact reference to a repository");
+    is("test_person", $new_object_set->get_table(), "Got same exact table");
+    my $columns = $new_object_set->get_columns();
+    is($#$columns, 5, "Got 6 columns");
+    is($columns->[0], "age", "Got 1st column as age");
+
+    $index = $new_object_set->get_index(["gender"]);
+    my $females = $index->{F};
+    is($#$females, 2, "Got 3 females");
+    is($females->[0]{name}, "susan", "Got susan as 1st female");
+
+    $index = $new_object_set->get_index(["state"]);
+    my $georgians = $index->{GA};
+    is($#$georgians, 6, "Got 7 georgians");
+    is($georgians->[3]{name}, "paul", "Got paul as 4th georgian");
+
+    $index = $new_object_set->get_index(["gender","age"]);
+    my $m39s = $index->{"M,39"};
+    is($#$m39s, 1, "Got 2 m39s");
+    is($m39s->[1]{name}, "keith", "Got keith as 2nd m39");
+    
+    $index = $new_object_set->get_unique_index(["gender","age"]);
+    my $m39 = $index->{"M,39"};
+    ok($m39, "Got an m39");
+    is($m39->{name}, "keith", "Got keith as the last (assumed unique) m39");
+    
+    my $summaries = $new_object_set->get_summary([]);
+    is(ref($summaries), "HASH", "Got summary hash");
+    is($summaries->{""}{num_kids}, 12, "Got 12 total kids");
+    
+    my $ext_summary = $new_object_set->get_ext_summary([]);
+    is(ref($ext_summary), "HASH", "Got summary hash");
+    is($ext_summary->{""}{num_kids}{sum},      12, "Got sum 12 kids");
+    is($ext_summary->{""}{num_kids}{average},  2, "Got average 2 kids");
+    is($ext_summary->{""}{num_kids}{count},    6, "Got count 6 kids");
+    is(ref($ext_summary->{""}{num_kids}{distinct}), "HASH", "Got distinct hashref");
+    my $distinct_values = [ keys %{$ext_summary->{""}{num_kids}{distinct}} ];
+    is($#$distinct_values, 3, "Got distinct 4 kids");
+    is($ext_summary->{""}{num_kids}{min},      0, "Got min 2 kids");
+    is($ext_summary->{""}{num_kids}{max},      4, "Got max 2 kids");
+    is($ext_summary->{""}{num_kids}{sum_sq},   38, "Got sum_sq 2 kids");
+    is($ext_summary->{""}{num_kids}{median},   2.5, "Got median 2 kids");
+    ok($ext_summary->{""}{num_kids}{stddev} >= 1.6733200 && $ext_summary->{""}{num_kids}{stddev} <= 1.6733201, "Got stddev 1.673320 kids");
+    is($ext_summary->{""}{num_kids}{mode},     2, "Got mode 2 kids");
+
+    my $column_values = $new_object_set->get_column_values("gender");
+    is($#$column_values, 1, "Got 2 column_values for gender");
+    is($column_values->[0], "M", "Got M as first gender value");
+    is($column_values->[1], "F", "Got F as second gender value");
+
+    $object = $new_object_set->get_object(1, ["person_id"]);
+    is($object->{name}, "stephen", "Got stephen as person_id 1");
+    $object = $new_object_set->get_object("39,keith", ["age","name"]);
+    is($object->{name}, "keith", "Got keith as person_id named keith age 39");
+
+    $females = $new_object_set->get_objects("F",["gender"]);
+    is($#$females, 2, "Got 3 females (without explicit use of an index)");
+    is($females->[0]{name}, "susan", "Got susan as 1st female (without explicit use of an index)");
+
+    ok(! defined $rep->{dbh}, "Never reconnected to the database");
 }
 
 {
+    $rep->_connect();
     my $dbh = $rep->{dbh};
     $dbh->do("drop table test_person");
 }

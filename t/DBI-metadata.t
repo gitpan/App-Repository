@@ -59,6 +59,7 @@ my $db = $context->repository();
 {
     #cheating... I know its a DBI, but I have to set up the test somehow
     my $dbh     = $db->{dbh};
+    eval { $dbh->do("drop table if exists app_cache"); };
     eval { $dbh->do("drop table test_person"); };
     my $ddl     = <<EOF;
 create table test_person (
@@ -76,6 +77,8 @@ create table test_person (
     gender             char(1)      null,
     birth_dt           date         null,
     age                integer      null,
+    chess_rating       float        null,
+    modify_dttm        datetime     null,
     index person_ie1 (last_name, first_name)
 )
 EOF
@@ -87,7 +90,7 @@ EOF
 # METADATA TESTS
 ###########################################################################
 my $table_names = $db->get_table_names();
-#print "tables=[@$table_names]\n";
+print "tables=[@$table_names]\n";
 my %tables = ( map { $_ => 1 } @$table_names );
 ok(defined $tables{test_person}, "get_table_names()");
 $db->_load_rep_metadata();
@@ -99,6 +102,25 @@ is_deeply($db->{table}{test_person}{primary_key}, ["person_id"], "primary_key se
 is_deeply($db->{table}{test_person2}{primary_key}, ["last_name", "first_name"], "primary_key set from config (comma-sep)");
 is_deeply($db->{table}{test_person3}{primary_key}, ["person_id"], "primary_key set from config (scalar)");
 is_deeply($db->{table}{test_person4}{primary_key}, ["person_id"], "primary_key set from config (scalar)");
+
+my $tabledef = $db->get_table_def("test_person");
+is($tabledef->{column}{person_id}{type},    "integer",  "person_id type is integer");
+is($tabledef->{column}{first_name}{type},   "string",   "first_name type is integer");
+is($tabledef->{column}{country}{type},      "string",   "country type is integer");
+is($tabledef->{column}{gender}{type},       "string",   "gender type is integer");
+is($tabledef->{column}{birth_dt}{type},     "date",     "birth_dt type is integer");
+is($tabledef->{column}{age}{type},          "integer",  "age type is integer");
+is($tabledef->{column}{chess_rating}{type}, "float",    "chess_rating type is integer");
+is($tabledef->{column}{modify_dttm}{type},  "datetime", "modify_dttm type is integer");
+
+is($tabledef->{column}{person_id}{quoted},    0, "person_id quoted is 0");
+is($tabledef->{column}{first_name}{quoted},   1, "first_name quoted is 1");
+is($tabledef->{column}{country}{quoted},      1, "country quoted is 1");
+is($tabledef->{column}{gender}{quoted},       1, "gender quoted is 1");
+is($tabledef->{column}{birth_dt}{quoted},     1, "birth_dt quoted is 1");
+is($tabledef->{column}{age}{quoted},          0, "age quoted is 0");
+is($tabledef->{column}{chess_rating}{quoted}, 0, "chess_rating quoted is 0");
+is($tabledef->{column}{modify_dttm}{quoted},  1, "modify_dttm quoted is 1");
 
 #{
 #    eval { $db->{dbh}->do("drop table test_person"); };

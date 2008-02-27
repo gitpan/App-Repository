@@ -2,6 +2,31 @@
 # CHANGE LOG
 #########################################
 
+0.966
+ x App::Repository::mk_select_joined_sql(): enable param substitutions in dbexpr's
+ x App::Repository::get_rows()/get_row(): use query caching if turned on for the table ({cache_name} => "name_of_shared_datastore")
+ x App::Repository::create_temporary_object_set(): can create a temporary object set with data, not bound to the database
+ x App::Repository::create_temporary_object_domain(): can create a temporary object domain with data, not bound to the database
+ x App::Repository::evaluate_expression(): can now supply defaults for null columns
+ x App::Repository::evaluate_expression(): added column defaults
+ x App::Repository::evaluate_expression(): fixed to be more efficient and to handle defaults on columns which are expressions themselves
+ x App::Repository::evaluate_expression(): fixed a bug when evaluating expressions of columns that end in digits
+ x App::Repository::evaluate_expression(): fixed a bug where using a hashref instead of arrayref
+ x App::Repository::evaluate_constant_expression(): can also do simple functions (abs(x), min(x,y), max(x,y), if(x,y,z), ifnull(x,y), case(x,y,a,z,b,c))
+ x App::Repository::evaluate_constant_expression(): can also do boolean operators (=, !=, <, <=, >, >=)
+ x App::Repository::evaluate_constant_expression(): fix for div 0 and sci notation
+ x App::Repository::summarize_rows(): can now summarize columns which have alternate aggregate levels
+ x App::Repository::summarize_rows(): produce an undef if all values that are summed are undef
+ x App::Repository::last_inserted_id($table): new method (without underscore) now takes $table param, works on redirects
+ x App::Repository - changed begin_work(), commit(), rollback() to consult an {in_transaction} attribute
+   This does something sensible if begin_work() is called within a transaction or a commit()/rollback() is outside a transaction
+ x App::Repository - get_table_def(): enable the 'table_def' option in get_rows() to override or supplement table_def entries already in the config
+ x App::Repository::* - change debug_sql and all other debug-style output to obey the debug_file option
+ x App::Repository::DBI - get_phys_column_names(): new method
+ x App::Repository::ValueDomain - use App::Repository::DBI::_do instead of DBI methods
+ x App::Repository::_insert_row(): handle update on duplicate
+ x App::Repository::* - improved logging of database errors when they occur (includes the SQL statement that failed)
+
 0.965
  x can now configure multiple databases (App::Repository::DBI) from app.conf (xyz.dbhost, xyz.dbname, ... for rep "xyz")
  x full redirection to other tables or other tables in other repositories is done

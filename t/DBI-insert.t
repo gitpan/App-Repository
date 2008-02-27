@@ -243,13 +243,13 @@ my ($nrows);
 $nrows = $db->insert_rows("test_person", ["age","first_name","gender","state"], $new_rows);
 is($nrows, 7, "insert_rows(): 7 rows, bulk insert");
 $nrows = $db->insert_rows("test_person", ["person_id","age","first_name","gender","state"], $dup_rows, { replace => 1 });
-is($nrows, 14, "insert_rows(): 7 rows (14 affected), bulk replace");
+is($nrows, 7, "insert_rows(): 7 rows, bulk replace");
 $nrows = $db->insert_rows("test_person", ["person_id", "age","first_name","gender","state"], $dup_rows, { update => 1 });
-is($nrows, 14, "insert_rows(): 7 rows (14 affected), bulk insert/update");
+is($nrows, 7, "insert_rows(): 7 rows, bulk insert/update");
 $nrows = $db->insert_rows("test_person", ["person_id","age","first_name","gender","state"], $dup_rows, { replace => 1, maxrows => 4 });
-is($nrows, 14, "insert_rows(): 7 rows (14 affected), bulk replace (4 at a time)");
+is($nrows, 7, "insert_rows(): 7 rows, bulk replace (4 at a time)");
 $nrows = $db->insert_rows("test_person", ["person_id", "age","first_name","gender","state"], $dup_rows, { update => 1, maxrows => 4 });
-is($nrows, 14, "insert_rows(): 7 rows (14 affected), bulk insert/update (4 at a time)");
+is($nrows, 7, "insert_rows(): 7 rows, bulk insert/update (4 at a time)");
 
 }
 
